@@ -1,0 +1,55 @@
+version: '3.8'
+services:
+  adsb-server:
+    build:
+      context: .
+      args:
+        TARGET: server
+    ports:
+      - "50051:50051"
+      - "8080:8080"
+    networks:
+      - adsbnet
+    restart: unless-stopped
+
+  simulator:
+    build:
+      context: .
+      args:
+        TARGET: simulator
+    environment:
+      - SERVER_URL=http://adsb-server:8080/ingest
+    networks:
+      - adsbnet
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: adsb
+      POSTGRES_USER: adsb
+      POSTGRES_PASSWORD: adsb
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - adsbnet
+
+  web:
+    build:
+      context: .
+      args:
+        TARGET: web
+    ports:
+      - "3000:3000"
+    networks:
+      - adsbnet
+    restart: unless-stopped
+
+networks:
+  adsbnet:
+    driver: bridge
+
+volumes:
+  db_data:

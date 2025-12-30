@@ -1,0 +1,267 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ADSB Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    html,body,#map{height:100%;margin:0;padding:0;}
+    /* Plane icon styling used by the map client */
+    .plane-icon{
+      font-size:24px;
+      line-height:24px;
+      text-align:center;
+      text-shadow: 0 0 2px rgba(0,0,0,0.6);
+      transform: translateY(-6px);
+      pointer-events: auto;
+      cursor: pointer;
+    }
+    .track-popup { font-size:13px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="main.js"></script>
+  <div id="adsb-debug-overlay" style="position:fixed;left:8px;bottom:8px;z-index:99999;background:rgba(0,0,0,0.6);color:#fff;padding:8px;border-radius:6px;font-family:Arial,Helvetica,sans-serif;font-size:13px;max-width:420px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+      <strong>ADSB</strong>
+      <div>
+        <button id="adsb-clear-tracks" style="padding:4px 6px;border-radius:4px;border:none;cursor:pointer;background:#e74c3c;color:#fff;margin-right:6px;">Clear tracks</button>
+        <button id="adsb-toggle-polys" style="padding:4px 6px;border-radius:4px;border:none;cursor:pointer;background:#3498db;color:#fff;margin-right:6px;">Toggle tracks</button>
+        <button id="adsb-toggle-legend" style="padding:4px 6px;border-radius:4px;border:none;cursor:pointer;background:#9b59b6;color:#fff;margin-right:6px;">Scale</button>
+        <button id="adsb-hide-overlay" style="padding:4px 6px;border-radius:4px;border:none;cursor:pointer;background:#2ecc71;color:#083;margin-left:6px;">Hide</button>
+      </div>
+    </div>
+    <table id="adsb-debug-table" style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead>
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.12);">
+          <th style="text-align:left;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="id">ICAO</th>
+          <th style="text-align:left;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="callsign">Callsign</th>
+          <th style="text-align:right;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="alt">Alt (ft)</th>
+          <th style="text-align:right;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="spd">Spd (kt)</th>
+          <th style="text-align:right;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="hdg">Hdg</th>
+          <th style="text-align:right;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="squawk">SQK</th>
+          <th style="text-align:right;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="rssi">RSSI</th>
+          <th style="text-align:center;padding:4px 6px;">Pred</th>
+        </tr>
+      </thead>
+      <tbody id="adsb-debug-body"></tbody>
+    </table>
+    <div id="adsb-debug-note" style="margin-top:6px;font-size:11px;opacity:0.9;color:#ddd;">Click a marker to select an aircraft for details.</div>
+  </div>
+  <!-- small floating icon shown when the debug overlay is hidden -->
+  <button id="adsb-show-icon" title="Show ADSB table" style="display:none;position:fixed;left:8px;bottom:8px;z-index:100000;background:#2ecc71;color:#fff;border:none;border-radius:20px;width:40px;height:40px;box-shadow:0 2px 6px rgba(0,0,0,0.4);cursor:pointer;font-weight:bold;">▦</button>
+  <script>
+    (function(){
+      const body = document.getElementById('adsb-debug-body');
+      const clearBtn = document.getElementById('adsb-clear-tracks');
+      const toggleBtn = document.getElementById('adsb-toggle-polys');
+      const legendBtn = document.getElementById('adsb-toggle-legend');
+      let polysVisible = true;
+      let legendVisible = true;
+      let sortField = 'id'; // default sort field
+      let sortAsc = true; // true = ascending, false = descending
+      
+      function updateHeaderIndicators() {
+        // update all header text to show sort indicator
+        for (const th of document.querySelectorAll('#adsb-debug-table thead th')) {
+          const field = th.getAttribute('data-sort');
+          let text = th.textContent.replace(/\s*[▲▼]\s*$/, ''); // remove existing arrow
+          if (field === sortField) {
+            text += ' ' + (sortAsc ? '▲' : '▼');
+          }
+          th.textContent = text;
+        }
+      }
+      
+      function renderTable() {
+        try {
+          if (typeof aircraft === 'undefined') { body.innerHTML = '<tr><td colspan="7">waiting for client...</td></tr>'; return; }
+          const sel = window.selectedAircraft;
+          // build rows: if a selected aircraft, show it first with detail
+          const rows = [];
+          if (sel && aircraft.has(sel)) {
+            const e = aircraft.get(sel);
+            const last = e.last || (e.coords && e.coords.length ? { alt: e.alt, speed: e.speed, heading: null } : null);
+            const altVal = last && last.alt ? last.alt : (e.alt? e.alt : 'n/a');
+            const spdVal = last && last.speed ? last.speed : (e.speed? e.speed : 'n/a');
+            const hdgVal = (last && last.heading) ? last.heading : (e.coords && e.coords.length>1 ? Math.round(bearing(e.coords[e.coords.length-2][0], e.coords[e.coords.length-2][1], e.coords[e.coords.length-1][0], e.coords[e.coords.length-1][1])) : 'n/a');
+            rows.push({ id: sel, callsign: (e.last && e.last.callsign) || '', alt: altVal, spd: spdVal, hdg: hdgVal, squawk: (e.last && e.last.squawk) || '', rssi: (e.last && typeof e.last.rssi === 'number') ? e.last.rssi.toFixed(1) : '', selected: true });
+          }
+          // add up to 8 other aircraft
+          let i = 0;
+          for (const [id,e] of aircraft) {
+            if (sel === id) continue;
+            if (i++ >= 8) break;
+            const last = e.last || (e.coords && e.coords.length ? { alt: e.alt, speed: e.speed } : null);
+            const altVal = last && last.alt ? last.alt : (e.alt? e.alt : 'n/a');
+            const spdVal = last && last.speed ? last.speed : (e.speed? e.speed : 'n/a');
+            const hdgVal = (last && last.heading) ? last.heading : (e.coords && e.coords.length>1 ? Math.round(bearing(e.coords[e.coords.length-2][0], e.coords[e.coords.length-2][1], e.coords[e.coords.length-1][0], e.coords[e.coords.length-1][1])) : 'n/a');
+            rows.push({ id, callsign: (e.last && e.last.callsign) || '', alt: altVal, spd: spdVal, hdg: hdgVal, squawk: (e.last && e.last.squawk) || '', rssi: (e.last && typeof e.last.rssi === 'number') ? e.last.rssi.toFixed(1) : '', selected: false });
+          }
+          
+          // sort rows (except selected one, which stays first)
+          const selectedRow = rows.find(r => r.selected);
+          const otherRows = rows.filter(r => !r.selected);
+          otherRows.sort((a, b) => {
+            let aVal = a[sortField];
+            let bVal = b[sortField];
+            
+            // convert to numbers for numeric fields
+            if (sortField === 'alt' || sortField === 'spd' || sortField === 'hdg') {
+              aVal = typeof aVal === 'string' && aVal === 'n/a' ? -Infinity : Number(aVal);
+              bVal = typeof bVal === 'string' && bVal === 'n/a' ? -Infinity : Number(bVal);
+            }
+            
+            if (aVal < bVal) return sortAsc ? -1 : 1;
+            if (aVal > bVal) return sortAsc ? 1 : -1;
+            return 0;
+          });
+          
+          // put selected row back first if it exists
+          if (selectedRow) otherRows.unshift(selectedRow);
+          
+          body.innerHTML = otherRows.map(r => {
+            const predChecked = (typeof predictionStates !== 'undefined' && predictionStates.has(r.id)) ? 'checked' : '';
+            return `\n<tr style="background:${r.selected? 'rgba(255,255,255,0.06)':''};cursor:pointer;" data-icao="${r.id}">\n<td style='padding:4px 6px;'>${r.id}</td>\n<td style='padding:4px 6px;'>${r.callsign}</td>\n<td style='padding:4px 6px;text-align:right;'>${r.alt}</td>\n<td style='padding:4px 6px;text-align:right;'>${r.spd}</td>\n<td style='padding:4px 6px;text-align:right;'>${r.hdg}</td>\n<td style='padding:4px 6px;text-align:right;'>${r.squawk}</td>\n<td style='padding:4px 6px;text-align:right;'>${r.rssi}</td>\n<td style='padding:4px 6px;text-align:center;'><input type='checkbox' class='pred-checkbox' data-icao='${r.id}' ${predChecked} onclick='event.stopPropagation();'/></td>\n</tr>`;
+          }).join('');
+          
+          // attach click handlers - bidirectional selection with zoom to marker
+          for (const tr of body.querySelectorAll('tr')) {
+            tr.onclick = () => { 
+              const icao = tr.getAttribute('data-icao');
+              window.selectedAircraft = icao;
+              // center to the marker while preserving zoom level
+              if (typeof aircraft !== 'undefined' && aircraft.has(icao)) {
+                const entry = aircraft.get(icao);
+                const markerLatLng = entry.marker.getLatLng();
+                if (typeof map !== 'undefined' && map) {
+                  map.setView(markerLatLng, map.getZoom());
+                }
+              }
+              renderTable(); 
+            };
+          }
+          
+          // attach prediction checkbox handlers
+          for (const cb of body.querySelectorAll('.pred-checkbox')) {
+            cb.onclick = (e) => {
+              e.stopPropagation();
+              const icao = cb.getAttribute('data-icao');
+              if (typeof aircraft === 'undefined') return;
+              if (typeof predictionStates === 'undefined') {
+                console.error('predictionStates not available');
+                return;
+              }
+              if (cb.checked) {
+                predictionStates.set(icao, true);
+                if (aircraft.has(icao) && typeof drawPredictionArrow !== 'undefined') {
+                  drawPredictionArrow(icao, aircraft.get(icao), true);
+                  console.log('Prediction enabled for', icao);
+                }
+              } else {
+                predictionStates.delete(icao);
+                if (aircraft.has(icao) && typeof drawPredictionArrow !== 'undefined') {
+                  drawPredictionArrow(icao, aircraft.get(icao), false);
+                  console.log('Prediction disabled for', icao);
+                }
+              }
+            };
+          }
+        } catch (err) { body.innerHTML = '<tr><td colspan="7">debug error</td></tr>'; }
+      }
+      
+      clearBtn.onclick = () => {
+        if (typeof aircraft === 'undefined') return;
+        for (const [id,e] of aircraft) {
+          try { 
+            // remove all segment polylines
+            if (e.segments && Array.isArray(e.segments)) {
+              for (const segment of e.segments) {
+                map.removeLayer(segment);
+              }
+            }
+            e.segments = [];
+            e.coords = [];
+            e.altitudes = [];
+          } catch(_){}
+        }
+        renderTable();
+      };
+      
+      toggleBtn.onclick = () => {
+        if (typeof aircraft === 'undefined') return;
+        polysVisible = !polysVisible;
+        for (const [id,e] of aircraft) {
+          try { 
+            // toggle visibility of all segment polylines
+            if (e.segments && Array.isArray(e.segments)) {
+              for (const segment of e.segments) {
+                segment.setStyle({opacity: polysVisible ? 0.9 : 0});
+              }
+            }
+          } catch(_){}
+        }
+        renderTable();
+      };
+      
+      legendBtn.onclick = () => {
+        if (typeof window.altitudeLegend === 'undefined') return;
+        legendVisible = !legendVisible;
+        const legendElement = document.querySelector('.altitude-legend');
+        if (legendElement) {
+          legendElement.style.display = legendVisible ? 'block' : 'none';
+        }
+      };
+      
+      // Add sort handlers to table headers
+      for (const th of document.querySelectorAll('#adsb-debug-table thead th')) {
+        th.onclick = () => {
+          const field = th.getAttribute('data-sort');
+          if (sortField === field) {
+            // toggle direction if same field clicked
+            sortAsc = !sortAsc;
+          } else {
+            // switch to new field, default ascending
+            sortField = field;
+            sortAsc = true;
+          }
+          updateHeaderIndicators();
+          renderTable();
+        };
+      }
+      
+      // Initialize header indicators on first load
+      updateHeaderIndicators();
+      
+      // overlay hide/show button
+      const hideBtn = document.getElementById('adsb-hide-overlay');
+      const overlay = document.getElementById('adsb-debug-overlay');
+      if (hideBtn && overlay) {
+        const showIcon = document.getElementById('adsb-show-icon');
+        hideBtn.onclick = () => {
+          if (overlay.style.display === 'none') {
+            overlay.style.display = '';
+            hideBtn.textContent = 'Hide';
+            if (showIcon) showIcon.style.display = 'none';
+          } else {
+            overlay.style.display = 'none';
+            hideBtn.textContent = 'Show';
+            if (showIcon) showIcon.style.display = 'block';
+          }
+        };
+        if (showIcon) {
+          showIcon.onclick = () => {
+            overlay.style.display = '';
+            showIcon.style.display = 'none';
+            hideBtn.textContent = 'Hide';
+          };
+        }
+      }
+      setInterval(renderTable, 600);
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+syntax = "proto3";
+package proto;
+
+message Aircraft {
+  string icao = 1;
+  double lat = 2;
+  double lon = 3;
+  int32 alt = 4;
+  int32 speed = 5;
+  string seen = 6;
+}
+
+service Adsb {
+  // Server-streaming of Aircraft messages
+  rpc StreamAircraft(google.protobuf.Empty) returns (stream Aircraft) {}
+}
