@@ -4,7 +4,7 @@
 
 Das System besteht aus 3 Services:
 1. **Server** (Port 8080): HTTP SSE Streamer + Ingest-Endpoint
-2. **Simulator** (PostsZu Server): Generiert künstliche Flugzeugdaten
+2. **Simulator** (Posts zu Server): Generiert künstliche Flugzeugdaten
 3. **Web** (Port 3000): Leaflet-Karte mit Echtzeit-Marker
 
 ## Alle Services starten
@@ -107,3 +107,8 @@ Leaflet Map (zeigt Marker)
 - Echte Daten von RTL-SDR über dump1090
 - Persistierung in Postgres
 - Deployment auf Raspberry Pi
+
+## Dokumentation
+
+- **ARCHITECTURE.md**: Detaillierte Code-Architektur
+- **REFACTORING.md**: Zusammenfassung der Code-Verbesserungen

@@ -1,3 +1,5 @@
+// Package db provides database operations for persisting aircraft tracking data.
+// Currently supports PostgreSQL as the backend.
 package db
 
 import (
@@ -11,7 +13,9 @@ import (
 	"github.com/pkg/errors"
 )
 
-// Connect opens a connection to Postgres. dsn example: "postgres://user:pass@localhost:5432/adsb?sslmode=disable"
+// Connect opens a connection to PostgreSQL and validates it.
+// dsn example: "postgres://user:pass@localhost:5432/adsb?sslmode=disable"
+// Returns an error if the connection fails or the server is unreachable.
 func Connect(dsn string) (*sql.DB, error) {
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -25,7 +29,8 @@ func Connect(dsn string) (*sql.DB, error) {
 	return db, nil
 }
 
-// EnsureSchema returns SQL for creating the tracks table.
+// EnsureSchema creates the aircraft table if it doesn't exist.
+// Safe to call multiple times - uses CREATE TABLE IF NOT EXISTS.
 func EnsureSchema(db *sql.DB) error {
 	q := `
 CREATE TABLE IF NOT EXISTS aircraft (
@@ -41,7 +46,9 @@ CREATE TABLE IF NOT EXISTS aircraft (
 	return err
 }
 
-// UpsertAircraft inserts or updates the latest position for an aircraft.
+// UpsertAircraft inserts a new aircraft record or updates an existing one.
+// If an aircraft with the same ICAO exists, its position, altitude, speed, and timestamp are updated.
+// This is the primary way to persist real-time aircraft positions.
 func UpsertAircraft(ctx context.Context, db *sql.DB, a adsb.Aircraft) error {
 	q := `INSERT INTO aircraft (icao, lat, lon, alt, speed, seen) VALUES ($1,$2,$3,$4,$5,$6)
 ON CONFLICT (icao) DO UPDATE SET lat = EXCLUDED.lat, lon = EXCLUDED.lon, alt = EXCLUDED.alt, speed = EXCLUDED.speed, seen = EXCLUDED.seen;`

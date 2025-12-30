@@ -1,3 +1,4 @@
+// Package adsb provides data structures and utilities for handling ADS-B aircraft tracking data.
 package adsb
 
 import (
@@ -9,8 +10,11 @@ import (
 	"time"
 )
 
-// RunDump1090Poll polls a dump1090-like JSON endpoint and sends Aircraft updates on the returned channel.
-// The caller should cancel ctx to stop polling and close the channel when done.
+// RunDump1090Poll periodically fetches aircraft data from a dump1090 JSON endpoint
+// and sends updates on the returned channel. The function runs in a goroutine.
+// Polling stops when ctx is cancelled.
+//
+// The endpoint should return JSON in the format: {\"aircraft\": [{\"hex\": \"...\", \"lat\": 50.0, ...}]}
 func RunDump1090Poll(ctx context.Context, url string) <-chan Aircraft {
 	out := make(chan Aircraft)
 	if url == "" {
@@ -49,43 +53,9 @@ func RunDump1090Poll(ctx context.Context, url string) <-chan Aircraft {
 				}
 				now := time.Now()
 				for _, a := range doc.Aircraft {
-					icao, _ := a["hex"].(string)
-					lat, _ := a["lat"].(float64)
-					lon, _ := a["lon"].(float64)
-					alt := 0
-					if v, ok := a["altitude"]; ok {
-						switch t := v.(type) {
-						case float64:
-							alt = int(t)
-						case string:
-							if n, err := strconv.Atoi(t); err == nil {
-								alt = n
-							}
-						}
-					}
-					spd := 0
-					if v, ok := a["gs"]; ok {
-						switch t := v.(type) {
-						case float64:
-							spd = int(t)
-						case string:
-							if n, err := strconv.Atoi(t); err == nil {
-								spd = n
-							}
-						}
-					}
-
-					// only emit if we have coordinates and icao
-					if icao == "" || lat == 0 && lon == 0 {
-						continue
-					}
-					out <- Aircraft{
-						ICAO:      icao,
-						Latitude:  lat,
-						Longitude: lon,
-						Altitude:  alt,
-						Speed:     spd,
-						Seen:      now,
+					acft := parseAircraft(a, now)
+					if acft.ICAO != "" && (acft.Latitude != 0 || acft.Longitude != 0) {
+						out <- acft
 					}
 				}
 			}()
@@ -94,3 +64,39 @@ func RunDump1090Poll(ctx context.Context, url string) <-chan Aircraft {
 
 	return out
 }
+
+// parseAircraft extracts relevant aircraft data from a raw JSON object from dump1090.
+// It handles type conversions and defaults for missing fields.
+func parseAircraft(raw map[string]interface{}, now time.Time) Aircraft {
+	icao, _ := raw["hex"].(string)
+	lat, _ := raw["lat"].(float64)
+	lon, _ := raw["lon"].(float64)
+	alt := parseInt(raw["altitude"])
+	spd := parseInt(raw["gs"])
+
+	return Aircraft{
+		ICAO:      icao,
+		Latitude:  lat,
+		Longitude: lon,
+		Altitude:  alt,
+		Speed:     spd,
+		Seen:      now,
+	}
+}
+
+// parseInt safely extracts an integer from various types (float64, string, int).
+func parseInt(v interface{}) int {
+	if v == nil {
+		return 0
+	}
+	switch t := v.(type) {
+	case float64:
+		return int(t)
+	case string:
+		if n, err := strconv.Atoi(t); err == nil {
+			return n
+		}
+	case int:
+		return t
+	}
+	return 0}
