@@ -1,0 +1,6 @@
+::1 - - [30/Dec/2025 15:26:32] "GET / HTTP/1.1" 200 -
+::ffff:127.0.0.1 - - [30/Dec/2025 15:26:32] code 404, message File not found
+::ffff:127.0.0.1 - - [30/Dec/2025 15:26:32] "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 -
+::1 - - [30/Dec/2025 15:26:32] "GET /main-htmx.js HTTP/1.1" 200 -
+::1 - - [30/Dec/2025 15:26:33] "GET /?id=a4510afd-49a1-4338-b49c-c26280719f15&vscodeBrowserReqId=1767104793680 HTTP/1.1" 200 -
+::1 - - [30/Dec/2025 15:26:33] "GET /main-htmx.js HTTP/1.1" 200 -

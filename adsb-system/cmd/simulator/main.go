@@ -1,3 +1,15 @@
+// Package main provides an aircraft simulator that generates realistic flight paths
+// and posts them to the ADSB tracking server.
+//
+// The simulator:
+// - Generates a fleet of 15 random aircraft with varied routes
+// - Updates each aircraft's position every 1 second
+// - Posts aircraft data to the server's /ingest endpoint via HTTP POST JSON
+// - Simulates realistic movement, altitude changes, and speed variations
+//
+// Usage:
+//
+//	./simulator -target http://localhost:8080/ingest
 package main
 
 import (

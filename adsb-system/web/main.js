@@ -1,11 +1,238 @@
-// ADSB Map Client: connects to SSE stream and displays aircraft on Leaflet map.
-// ADSB Map Client: connects to SSE stream and displays aircraft tracks and plane icons
-console.log('[ADSB] Starting map client...');
+// ADSB Map Client with HTMX: connects to HTMX-updated table and displays aircraft on Leaflet map.
+console.log('[ADSB] Starting map client with HTMX...');
 
 const center = [50, 8];
 const zoom = 6;
 
 const map = L.map('map').setView(center, zoom);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+}).addTo(map);
+
+// Track state per ICAO: { polyline, marker, coords[] }
+const aircraft = new Map();
+const MAX_TRACK_POINTS = 200;
+const predictionStates = new Map(); // track which aircraft have prediction enabled
+
+// Altitude-based color: blue (low) -> cyan -> green -> yellow -> red (high)
+function colorByAltitude(alt) {
+  const maxAlt = 45000; // max altitude in feet for color scale
+  const clipped = Math.min(Math.max(alt, 0), maxAlt);
+  const ratio = clipped / maxAlt; // 0 to 1
+  // spectrum: blue (0) -> cyan (0.25) -> green (0.5) -> yellow (0.75) -> red (1)
+  let r, g, b;
+  if (ratio < 0.25) {
+    const t = ratio / 0.25;
+    r = 0;
+    g = Math.round(255 * t);
+    b = 255;
+  } else if (ratio < 0.5) {
+    const t = (ratio - 0.25) / 0.25;
+    r = 0;
+    g = 255;
+    b = Math.round(255 * (1 - t));
+  } else if (ratio < 0.75) {
+    const t = (ratio - 0.5) / 0.25;
+    r = Math.round(255 * t);
+    g = 255;
+    b = 0;
+  } else {
+    const t = (ratio - 0.75) / 0.25;
+    r = 255;
+    g = Math.round(255 * (1 - t));
+    b = 0;
+  }
+  return `rgb(${r},${g},${b})`;
+}
+
+function colorForId(id) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h << 5) - h + id.charCodeAt(i);
+  const hue = Math.abs(h) % 360;
+  return `hsl(${hue},70%,45%)`;
+}
+
+// Handle HTMX swaps: when the table tbody is updated, process new aircraft data
+document.addEventListener('htmx:afterSwap', function(event) {
+  if (event.detail.target.id === 'adsb-debug-body') {
+    // Read updated table rows and update map
+    const tbody = document.getElementById('adsb-debug-body');
+    const rows = tbody.querySelectorAll('tr');
+    rows.forEach(row => {
+      const cells = row.querySelectorAll('td');
+      if (cells.length >= 5) {
+        const icao = cells[0].textContent.trim();
+        const lat = parseFloat(cells[1].textContent);
+        const lon = parseFloat(cells[2].textContent);
+        const alt = parseInt(cells[3].textContent);
+        const speed = parseInt(cells[4].textContent);
+        
+        updateAircraft({
+          icao,
+          lat,
+          lon,
+          alt,
+          speed,
+          heading: 0,
+          seen: new Date().toISOString()
+        });
+      }
+    });
+  }
+});
+
+// Update aircraft on map
+function updateAircraft(data) {
+  const id = data.icao;
+  const lat = data.lat;
+  const lon = data.lon;
+  const alt = data.alt || 0;
+  const speed = data.speed || 0;
+  const heading = data.heading;
+  const seen = new Date(data.seen);
+
+  // Initialize entry if new
+  if (!aircraft.has(id)) {
+    aircraft.set(id, {
+      coords: [],
+      marker: null,
+      polyline: null,
+      segments: [],
+      last: null,
+      alt: 0,
+      speed: 0,
+      heading: 0
+    });
+  }
+
+  const entry = aircraft.get(id);
+
+  // Check if position changed
+  if (entry.coords.length > 0) {
+    const lastCoord = entry.coords[entry.coords.length - 1];
+    if (lastCoord[0] === lat && lastCoord[1] === lon) {
+      return; // No change
+    }
+  }
+
+  // Add to coords history
+  entry.coords.push([lat, lon]);
+  if (entry.coords.length > MAX_TRACK_POINTS) {
+    entry.coords.shift();
+  }
+
+  // Draw polyline on first update
+  if (!entry.polyline) {
+    entry.polyline = L.polyline(entry.coords, {
+      color: colorForId(id),
+      weight: 2,
+      opacity: 0.6
+    }).addTo(map);
+  } else {
+    entry.polyline.setLatLngs(entry.coords);
+  }
+
+  // Create or update marker
+  const popup = `<strong>${id}</strong><br/>Alt: ${alt} ft<br/>Spd: ${speed} kt`;
+  const newColor = colorByAltitude(alt);
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24'><polygon points='12,2 4,20 12,15 20,20' fill='${newColor}'/></svg>`;
+  const icon = L.divIcon({ className: 'plane-divicon', html: svg, iconSize: [28, 28] });
+
+  if (!entry.marker) {
+    entry.marker = L.marker([lat, lon], { icon: icon }).addTo(map);
+    entry.marker.bindPopup(popup);
+  } else {
+    entry.marker.setLatLng([lat, lon]).setIcon(icon).getPopup().setContent(popup);
+  }
+
+  // Apply rotation if heading available
+  if (heading) {
+    applyRotation(entry.marker, heading);
+  }
+
+  entry.last = { alt, speed, heading, seen };
+  entry.alt = alt;
+  entry.speed = speed;
+}
+
+function applyRotation(marker, hdg) {
+  try {
+    const wrapper = marker.getElement();
+    if (!wrapper) throw new Error('no wrapper');
+    const svg = wrapper.querySelector && wrapper.querySelector('svg');
+    if (svg) {
+      svg.style.transformOrigin = '50% 50%';
+      svg.style.transform = `rotate(${hdg}deg)`;
+      return;
+    }
+  } catch (e) {}
+  setTimeout(() => {
+    try {
+      const wrapper2 = marker.getElement();
+      const svg2 = wrapper2 && wrapper2.querySelector && wrapper2.querySelector('svg');
+      if (svg2) {
+        svg2.style.transformOrigin = '50% 50%';
+        svg2.style.transform = `rotate(${hdg}deg)`;
+      }
+    } catch (_) {}
+  }, 120);
+}
+
+// Reapply rotations on map changes
+map.on('zoomend moveend viewreset', () => {
+  try {
+    for (const [id, entry] of aircraft.entries()) {
+      const hd = entry.last && entry.last.heading;
+      if (typeof hd === 'number' && !isNaN(hd)) applyRotation(entry.marker, hd);
+    }
+  } catch (e) {}
+});
+
+// Add altitude legend
+const legend = L.control({ position: 'bottomright' });
+legend.onAdd = () => {
+  const div = L.DomUtil.create('div', 'altitude-legend');
+  div.innerHTML = `
+    <div style="background:rgba(0,0,0,0.7);color:#fff;padding:8px;border-radius:6px;font-family:Arial,Helvetica,sans-serif;font-size:11px;width:120px;">
+      <strong style="font-size:10px;">Altitude (ft)</strong><br/>
+      <div style="height:24px;background:linear-gradient(to right, rgb(0,0,255), rgb(0,255,255), rgb(0,255,0), rgb(255,255,0), rgb(255,0,0));border-radius:4px;margin:4px 0;"></div>
+      <div style="display:flex;justify-content:space-between;font-size:9px;">
+        <span>0</span>
+        <span>23k</span>
+        <span>45k</span>
+      </div>
+    </div>
+  `;
+  L.DomEvent.disableClickPropagation(div);
+  return div;
+};
+legend.addTo(map);
+
+// Overlay buttons
+document.getElementById('adsb-clear-tracks').addEventListener('click', () => {
+  for (const entry of aircraft.values()) {
+    if (entry.polyline) map.removeLayer(entry.polyline);
+  }
+  aircraft.clear();
+});
+
+document.getElementById('adsb-toggle-polys').addEventListener('click', () => {
+  for (const entry of aircraft.values()) {
+    if (entry.polyline) {
+      if (map.hasLayer(entry.polyline)) {
+        map.removeLayer(entry.polyline);
+      } else {
+        map.addLayer(entry.polyline);
+      }
+    }
+  }
+});
+
+document.getElementById('adsb-hide-overlay').addEventListener('click', () => {
+  document.getElementById('adsb-debug-overlay').style.display = 'none';
+});
+
+console.log('[ADSB] Map client ready. Waiting for HTMX table updates...');
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19,
 }).addTo(map);

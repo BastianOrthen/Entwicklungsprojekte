@@ -1,3 +1,14 @@
+// Package main provides the ADSB tracking server.
+// The server accepts aircraft data via HTTP POST (/ingest), broadcasts it to
+// connected clients via SSE (/stream), and exposes a REST API for HTMX queries (/api/aircraft-rows).
+//
+// Features:
+// - In-memory aircraft tracking with real-time updates
+// - Server-side sorting on aircraft data
+// - Optional PostgreSQL persistence
+// - HTTP-based data ingestion (REST API)
+// - Server-Sent Events (SSE) streaming for real-time clients
+// - CORS support for browser clients
 package main
 
 import (
