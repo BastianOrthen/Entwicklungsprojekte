@@ -16,14 +16,14 @@ import (
 
 // Config holds the server configuration from flags/env vars.
 type Config struct {
-	HTTPAddr string
-	DumpURL  string
+	HTTPAddr    string
+	DumpURL     string
 	PostgresDSN string
 }
 
 func main() {
 	cfg := parseConfig()
-	
+
 	fmt.Printf("[SERVER] Starting on %s\n", cfg.HTTPAddr)
 
 	// Initialize broadcaster and start HTTP server
@@ -63,11 +63,11 @@ func main() {
 // parseConfig reads configuration from command-line flags and environment variables.
 func parseConfig() Config {
 	var cfg Config
-	flag.StringVar(&cfg.DumpURL, "dump", "http://127.0.0.1:8080/data/aircraft.json", 
+	flag.StringVar(&cfg.DumpURL, "dump", "http://127.0.0.1:8080/data/aircraft.json",
 		"dump1090 aircraft.json URL")
-	flag.StringVar(&cfg.PostgresDSN, "pg", "", 
+	flag.StringVar(&cfg.PostgresDSN, "pg", "",
 		"postgres dsn (optional)")
-	flag.StringVar(&cfg.HTTPAddr, "http", ":8080", 
+	flag.StringVar(&cfg.HTTPAddr, "http", ":8080",
 		"http listen address for server (SSE/ingest)")
 	flag.Parse()
 
@@ -110,7 +110,7 @@ func startDataForwarding(ctx context.Context, cfg Config, broadcaster *grpcserve
 				}
 				fmt.Printf("[SERVER] Broadcast: %s\n", a.ICAO)
 				broadcaster.Broadcast(a)
-				
+
 				// Persist to database if available
 				if dbConn != nil {
 					if err := dbpkg.UpsertAircraft(ctx, dbConn, a); err != nil {

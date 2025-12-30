@@ -44,21 +44,21 @@ func (ag *AircraftGenerator) GenerateFleet(fleetSize, fighterSize int) []adsb.Ai
 // generateCivilian creates a random civilian aircraft with realistic initial values.
 func (ag *AircraftGenerator) generateCivilian() adsb.Aircraft {
 	return adsb.Aircraft{
-		ICAO:        randomICAO(),
-		Latitude:    50.0 + (rand.Float64()-0.5)*6.0,  // Central Europe
-		Longitude:   8.0 + (rand.Float64()-0.5)*8.0,   // Central Europe
-		Altitude:    2000 + rand.Intn(30000),
-		Speed:       100 + rand.Intn(400),
-		Heading:     rand.Intn(360),
-		Track:       rand.Intn(360),
-		Callsign:    randomCallsign(),
-		Squawk:      randomSquawk(),
+		ICAO:         randomICAO(),
+		Latitude:     50.0 + (rand.Float64()-0.5)*6.0, // Central Europe
+		Longitude:    8.0 + (rand.Float64()-0.5)*8.0,  // Central Europe
+		Altitude:     2000 + rand.Intn(30000),
+		Speed:        100 + rand.Intn(400),
+		Heading:      rand.Intn(360),
+		Track:        rand.Intn(360),
+		Callsign:     randomCallsign(),
+		Squawk:       randomSquawk(),
 		VerticalRate: 0,
-		Messages:    1,
-		RSSI:        -5.0 + rand.Float64()*5.0,
-		OnGround:    false,
-		Source:      "sim",
-		Seen:        time.Now(),
+		Messages:     1,
+		RSSI:         -5.0 + rand.Float64()*5.0,
+		OnGround:     false,
+		Source:       "sim",
+		Seen:         time.Now(),
 	}
 }
 

@@ -8,8 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"sync"
@@ -96,11 +96,11 @@ func (s *sseWriter) Write(p []byte) (int, error) {
 func (b *Broadcaster) handleStream(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	setStreamHeaders(w)
-	
+
 	ch := b.Subscribe(ctx)
 	flusher := w.(http.Flusher)
 	enc := json.NewEncoder(&sseWriter{w: w})
-	
+
 	for a := range ch {
 		if err := enc.Encode(a); err != nil {
 			return
@@ -142,11 +142,11 @@ func (b *Broadcaster) handleIngest(w http.ResponseWriter, r *http.Request) {
 func (b *Broadcaster) handleDebug(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Content-Type", "text/plain")
-	
+
 	b.mu.Lock()
 	count := len(b.clients)
 	b.mu.Unlock()
-	
+
 	fmt.Fprintf(w, "Active subscribers: %d\n", count)
 }
 

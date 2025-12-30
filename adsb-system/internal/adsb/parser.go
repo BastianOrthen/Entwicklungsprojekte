@@ -99,4 +99,5 @@ func parseInt(v interface{}) int {
 	case int:
 		return t
 	}
-	return 0}
+	return 0
+}

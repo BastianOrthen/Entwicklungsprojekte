@@ -34,11 +34,11 @@ func main() {
 
 // Simulator manages the simulation loop for aircraft movement and posting.
 type Simulator struct {
-	planes    []adsb.Aircraft
-	client    *http.Client
-	target    string
-	updater   *sim.MovementUpdater
-	ticker    *time.Ticker
+	planes  []adsb.Aircraft
+	client  *http.Client
+	target  string
+	updater *sim.MovementUpdater
+	ticker  *time.Ticker
 }
 
 // NewSimulator creates a new simulator instance.
@@ -81,7 +81,7 @@ func (s *Simulator) postAircraft(a adsb.Aircraft) {
 	if _, err := s.client.Do(req); err != nil {
 		log.Printf("[SIM] Error posting %s: %v", a.ICAO, err)
 	} else {
-		log.Printf("[SIM] Posted %s at %.5f,%.5f alt=%d hdg=%d spd=%d", 
+		log.Printf("[SIM] Posted %s at %.5f,%.5f alt=%d hdg=%d spd=%d",
 			a.ICAO, a.Latitude, a.Longitude, a.Altitude, a.Heading, a.Speed)
 	}
 }
