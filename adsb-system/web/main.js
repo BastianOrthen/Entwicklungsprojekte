@@ -233,14 +233,6 @@ document.getElementById('adsb-hide-overlay').addEventListener('click', () => {
 });
 
 console.log('[ADSB] Map client ready. Waiting for HTMX table updates...');
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 19,
-}).addTo(map);
-
-// Track state per ICAO: { polyline, marker, coords[] }
-const aircraft = new Map();
-const MAX_TRACK_POINTS = 200;
-const predictionStates = new Map(); // track which aircraft have prediction enabled
 
 // Altitude-based color: blue (low) -> cyan -> green -> yellow -> red (high)
 // Altitude scale: 0 ft = blue, 45000 ft = red

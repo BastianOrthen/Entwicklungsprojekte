@@ -48,6 +48,33 @@
     .track-popup {
       font-size: 13px;
     }
+
+    /* Leaflet popup: dark theme */
+    .leaflet-popup-content-wrapper {
+      background: rgba(15,16,25,0.95);
+      color: #b7d9ff;
+      border: 1px solid #1e7ec8;
+    }
+
+    .leaflet-popup-tip {
+      background: rgba(15,16,25,0.95);
+    }
+
+    .leaflet-container a.leaflet-popup-close-button {
+      color: #b7d9ff;
+    }
+
+    .leaflet-container a.leaflet-popup-close-button:hover {
+      color: #ffffff;
+    }
+
+    /* Sticky table header while scrolling overlay */
+    #adsb-debug-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #1f2937;
+    }
     
     /* Table header styling - sortable columns */
     th[data-sort] {
@@ -66,21 +93,30 @@
     
     th[data-sort].sort-asc::after {
       content: '▲';
-      color: #3498db;
+      color: #1e7ec8;
       font-weight: bold;
     }
     
     th[data-sort].sort-desc::after {
       content: '▼';
-      color: #3498db;
+      color: #1e7ec8;
       font-weight: bold;
     }
     
     /* Highlighted selected aircraft row */
     tbody tr.selected {
-      background-color: #3498db !important;
+      background-color: #1e7ec8 !important;
       color: white;
       font-weight: bold;
+    }
+
+    /* Table text color (theme blue) */
+    #adsb-debug-table {
+      color: #b7d9ff;
+    }
+
+    #adsb-debug-table td, #adsb-debug-table th {
+      color: inherit;
     }
   </style>
 </head>
@@ -92,22 +128,23 @@
   <script src="main-htmx.js"></script>
   
   <!-- Fixed overlay with aircraft table and controls -->
-  <div id="adsb-debug-overlay" style="position:fixed;left:8px;bottom:8px;z-index:99999;background:rgba(0,0,0,0.8);color:#fff;padding:8px;border-radius:6px;font-family:Arial,Helvetica,sans-serif;font-size:13px;max-width:500px;max-height:60vh;overflow-y:auto;">
-    
-    <!-- Header with title and buttons -->
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+  <div id="adsb-debug-overlay" style="position:fixed;left:8px;bottom:8px;z-index:99999;background:rgba(15,16,25,0.95);color:#b7d9ff;padding:8px;border-radius:6px;font-family:Arial,Helvetica,sans-serif;font-size:13px;max-width:500px;max-height:60vh;border:1px solid #1e7ec8;display:flex;flex-direction:column;">
+    <!-- Header with title and buttons (always visible) -->
+    <div style="flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
       <strong>✈ ADSB Tracking</strong>
       <div>
-        <button id="adsb-clear-tracks" title="Clear all flight paths" style="padding:4px 6px;border-radius:4px;border:none;cursor:pointer;background:#e74c3c;color:#fff;margin-right:4px;font-size:11px;">Clear</button>
-        <button id="adsb-toggle-polys" title="Show/hide flight paths" style="padding:4px 6px;border-radius:4px;border:none;cursor:pointer;background:#3498db;color:#fff;margin-right:4px;font-size:11px;">Paths</button>
-        <button id="adsb-hide-overlay" title="Hide this panel" style="padding:4px 6px;border-radius:4px;border:none;cursor:pointer;background:#9b59b6;color:#fff;font-size:11px;">Hide</button>
+        <button id="adsb-clear-tracks" title="Clear all flight paths" style="padding:4px 6px;border-radius:4px;border:none;cursor:pointer;background:#c5483f;color:#fff;margin-right:4px;font-size:11px;">Clear</button>
+        <button id="adsb-toggle-polys" title="Show/hide flight paths" style="padding:4px 6px;border-radius:4px;border:none;cursor:pointer;background:#1e7ec8;color:#fff;margin-right:4px;font-size:11px;">Paths</button>
+        <button id="adsb-hide-overlay" title="Hide this panel" style="padding:4px 6px;border-radius:4px;border:none;cursor:pointer;background:#0d47a1;color:#fff;font-size:11px;">Hide</button>
       </div>
     </div>
-    
+
+    <!-- Scroll area (only table + note scroll) -->
+    <div id="adsb-overlay-scroll" style="flex:1 1 auto;overflow-y:auto;">
     <!-- Sortable aircraft table -->
-    <table id="adsb-debug-table" style="width:100%;border-collapse:collapse;font-size:12px;background:#1a1a1a;">
+    <table id="adsb-debug-table" style="width:100%;border-collapse:collapse;font-size:12px;background:#1f2937;">
       <thead>
-        <tr style="border-bottom:2px solid #3498db;">
+        <tr style="border-bottom:2px solid #1e7ec8;">
           <th style="text-align:left;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="id" title="Click to sort by ICAO">ICAO</th>
           <th style="text-align:left;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="callsign" title="Click to sort by Callsign">Callsign</th>
           <th style="text-align:right;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="alt" title="Click to sort by Altitude">Alt (ft)</th>
@@ -123,14 +160,14 @@
     </table>
     
     <!-- Help text -->
-    <div id="adsb-debug-note" style="margin-top:6px;font-size:11px;opacity:0.8;color:#aaa;">
+    <div id="adsb-debug-note" style="margin-top:6px;font-size:11px;opacity:0.9;color:#8fc6ff;">
       Click column headers to sort • Click rows or markers to select aircraft
+    </div>
     </div>
   </div>
   
   <!-- Floating button shown when overlay is hidden -->
-  <button id="adsb-show-icon" title="Show aircraft table" style="display:none;position:fixed;left:8px;bottom:8px;z-index:100000;background:#2ecc71;color:#000;border:none;border-radius:20px;width:40px;height:40px;box-shadow:0 2px 8px rgba(0,0,0,0.5);cursor:pointer;font-weight:bold;font-size:16px;">▦</button>
-  
+  <button id="adsb-show-icon" title="Show aircraft table" style="display:none;position:fixed;left:8px;bottom:8px;z-index:100000;background:#1e7ec8;color:#fff;border:none;border-radius:20px;width:40px;height:40px;box-shadow:0 2px 8px rgba(0,0,0,0.7);cursor:pointer;font-weight:bold;font-size:16px;">▦</button>
   <!-- Overlay visibility controls and button handlers -->
   <script>
     // Handle show/hide overlay panel
@@ -155,38 +192,6 @@
         showIcon.onclick = () => {
           overlay.style.display = 'block';
           showIcon.style.display = 'none';
-        };
-      }
-      
-      // Clear all flight paths button
-      const clearBtn = document.getElementById('adsb-clear-tracks');
-      if (clearBtn) {
-        clearBtn.onclick = () => {
-          if (typeof aircraft !== 'undefined') {
-            for (const entry of aircraft.values()) {
-              if (entry.polylineGroup) map.removeLayer(entry.polylineGroup);
-              if (entry.marker) map.removeLayer(entry.marker);
-            }
-            aircraft.clear();
-          }
-        };
-      }
-      
-      // Toggle flight paths visibility
-      const toggleBtn = document.getElementById('adsb-toggle-polys');
-      if (toggleBtn) {
-        toggleBtn.onclick = () => {
-          if (typeof aircraft !== 'undefined') {
-            for (const entry of aircraft.values()) {
-              if (entry.polylineGroup) {
-                if (map.hasLayer(entry.polylineGroup)) {
-                  map.removeLayer(entry.polylineGroup);
-                } else {
-                  map.addLayer(entry.polylineGroup);
-                }
-              }
-            }
-          }
         };
       }
     })();

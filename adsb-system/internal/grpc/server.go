@@ -318,7 +318,7 @@ func (b *Broadcaster) handleAircraftRows(w http.ResponseWriter, r *http.Request)
 		rssi := fmt.Sprintf("%.1f", a.RSSI)
 		predicted := "N" // Can be extended for prediction logic
 
-		fmt.Fprintf(w, `<tr id="aircraft-%s" data-lat="%.5f" data-lon="%.5f">
+		fmt.Fprintf(w, `<tr id="aircraft-%s" data-lat="%.5f" data-lon="%.5f" style="background-color:#2d3748;color:#b7d9ff;border-bottom:1px solid #3d4959;">
   <td>%s</td>
   <td>%s</td>
   <td style="text-align:right;">%d</td>

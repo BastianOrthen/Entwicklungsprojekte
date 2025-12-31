@@ -26,6 +26,7 @@ let aircraft;                 // Map<icao, {polyline, marker, coords[]}>
 let selectedAircraft = null;  // Currently selected aircraft ICAO
 let currentSortKey = null;    // Current sort column (e.g., "alt", "spd")
 let currentSortAsc = true;    // Sort direction: true = ascending (▲), false = descending (▼)
+let pathsVisible = true;      // Track visibility toggle (Paths button)
 const MAX_TRACK_POINTS = 200; // Max polyline points per aircraft
 
 console.log('[ADSB] Script loaded, waiting for DOM...');
@@ -48,9 +49,46 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Initialize table sorting UI
   initializeTableSorting();
+
+  // Initialize overlay buttons (clear tracks / toggle paths)
+  initializeButtons();
   
   console.log('[ADSB] Map initialized, ready for HTMX events');
 });
+
+function setPathsVisible(visible) {
+  pathsVisible = !!visible;
+  if (!map || !aircraft) return;
+
+  for (const entry of aircraft.values()) {
+    if (!entry.polylineGroup) continue;
+
+    if (pathsVisible) {
+      if (!map.hasLayer(entry.polylineGroup)) entry.polylineGroup.addTo(map);
+    } else {
+      if (map.hasLayer(entry.polylineGroup)) map.removeLayer(entry.polylineGroup);
+    }
+  }
+}
+
+function togglePathsVisible() {
+  setPathsVisible(!pathsVisible);
+}
+
+function clearTracks() {
+  if (!map || !aircraft) return;
+
+  for (const entry of aircraft.values()) {
+    entry.coords = [];
+
+    if (entry.polylineGroup) {
+      entry.polylineGroup.clearLayers();
+      if (map.hasLayer(entry.polylineGroup)) map.removeLayer(entry.polylineGroup);
+      entry.polylineGroup = null;
+    }
+    entry.polyline = null;
+  }
+}
 
 /**
  * Altitude-based color gradient: blue (low) → cyan → green → yellow → red (high)
@@ -138,12 +176,9 @@ document.addEventListener('htmx:afterSettle', function(event) {
     
     console.log('[HTMX] Done processing. Total aircraft on map:', aircraft.size);
     
-    // Attach delegated click handlers to tbody for row selection
+    // Attach delegated click handler once (avoid duplicating listeners on refresh)
     tbody.removeEventListener('click', handleTableBodyClick);
     tbody.addEventListener('click', handleTableBodyClick);
-    
-    // Reinitialize table sorting UI
-    initializeTableSorting();
     
     // Reapply selection highlighting
     if (selectedAircraft) {
@@ -198,10 +233,23 @@ function updateAircraft(data) {
   }
 
   // Draw colored polyline using altitude-based color per segment
-  if (!entry.polyline) {
-    const polylineGroup = L.featureGroup();
-    entry.polylineGroup = polylineGroup;
-    polylineGroup.addTo(map);
+  if (!entry.polylineGroup) {
+    entry.polylineGroup = L.featureGroup();
+    // Backward-compat alias: some code may still check entry.polyline
+    entry.polyline = entry.polylineGroup;
+
+    if (pathsVisible) {
+      entry.polylineGroup.addTo(map);
+    }
+  }
+
+  // Enforce current visibility state (also covers newly created groups)
+  if (entry.polylineGroup) {
+    if (pathsVisible) {
+      if (!map.hasLayer(entry.polylineGroup)) entry.polylineGroup.addTo(map);
+    } else {
+      if (map.hasLayer(entry.polylineGroup)) map.removeLayer(entry.polylineGroup);
+    }
   }
   
   // Clear old polyline segments
@@ -278,7 +326,7 @@ function addLegend() {
   legend.onAdd = () => {
     const div = L.DomUtil.create('div', 'altitude-legend');
     div.innerHTML = `
-      <div style="background:rgba(0,0,0,0.7);color:#fff;padding:8px;border-radius:6px;font-family:Arial,Helvetica,sans-serif;font-size:11px;width:120px;">
+      <div style="background:rgba(15,16,25,0.95);color:#e0e0e0;padding:8px;border-radius:6px;font-family:Arial,Helvetica,sans-serif;font-size:11px;width:120px;border:1px solid #1e7ec8;">
         <strong style="font-size:10px;">Altitude (ft)</strong><br/>
         <div style="height:24px;background:linear-gradient(to right, rgb(0,0,255), rgb(0,255,255), rgb(0,255,0), rgb(255,255,0), rgb(255,0,0));border-radius:4px;margin:4px 0;"></div>
         <div style="display:flex;justify-content:space-between;font-size:9px;">
@@ -299,44 +347,26 @@ setTimeout(() => {
   if (map && typeof addLegend === 'function') addLegend();
 }, 100);
 
-// Overlay buttons
-const clearBtn = document.getElementById('adsb-clear-tracks');
-if (clearBtn) {
-  clearBtn.addEventListener('click', () => {
-    if (typeof aircraft !== 'undefined') {
-      for (const entry of aircraft.values()) {
-        if (entry.polyline) map.removeLayer(entry.polyline);
-      }
-      aircraft.clear();
-    }
-  });
-}
-
-const toggleBtn = document.getElementById('adsb-toggle-polys');
-if (toggleBtn) {
-  toggleBtn.addEventListener('click', () => {
-    if (typeof aircraft !== 'undefined') {
-      for (const entry of aircraft.values()) {
-        if (entry.polyline) {
-          if (map.hasLayer(entry.polyline)) {
-            map.removeLayer(entry.polyline);
-          } else {
-            map.addLayer(entry.polyline);
-          }
-        }
-      }
-    }
-  });
-}
-
 // Initialize overlay buttons and table sorting after DOM is ready
+function onClearTracksClick() {
+  clearTracks();
+}
+
+function onTogglePathsClick() {
+  togglePathsVisible();
+}
+
 function initializeButtons() {
-  const hideBtn = document.getElementById('adsb-hide-overlay');
-  if (hideBtn) {
-    hideBtn.addEventListener('click', () => {
-      const overlay = document.getElementById('adsb-debug-overlay');
-      if (overlay) overlay.style.display = 'none';
-    });
+  const clearBtn = document.getElementById('adsb-clear-tracks');
+  if (clearBtn) {
+    clearBtn.removeEventListener('click', onClearTracksClick);
+    clearBtn.addEventListener('click', onClearTracksClick);
+  }
+
+  const toggleBtn = document.getElementById('adsb-toggle-polys');
+  if (toggleBtn) {
+    toggleBtn.removeEventListener('click', onTogglePathsClick);
+    toggleBtn.addEventListener('click', onTogglePathsClick);
   }
   
   // Initialize table column sorting
@@ -344,64 +374,6 @@ function initializeButtons() {
 }
 
 // Table sorting functionality
-function initializeTableSorting() {
-  const table = document.getElementById('adsb-debug-table');
-  if (!table) return;
-  
-  const thead = table.querySelector('thead');
-  if (!thead) return;
-  
-  // Remove old event listener if exists
-  thead.removeEventListener('click', handleHeaderClick);
-  
-  // Add single delegated listener on thead
-  thead.addEventListener('click', handleHeaderClick);
-  
-  // Update sort indicators based on current state
-  thead.querySelectorAll('th[data-sort]').forEach(h => {
-    h.classList.remove('sort-asc', 'sort-desc');
-  });
-  
-  if (currentSortKey) {
-    const header = thead.querySelector(`th[data-sort="${currentSortKey}"]`);
-    if (header) {
-      header.classList.add(currentSortAsc ? 'sort-asc' : 'sort-desc');
-    }
-  }
-}
-
-// Handle header click with event delegation
-function handleHeaderClick(event) {
-  const header = event.target.closest('th[data-sort]');
-  if (!header) return;
-  
-  const sortKey = header.dataset.sort;
-  console.log('[SORT] Header clicked:', sortKey);
-  
-  // Toggle sort direction if clicking same column, else set to ascending
-  if (currentSortKey === sortKey) {
-    currentSortAsc = !currentSortAsc;
-  } else {
-    currentSortKey = sortKey;
-    currentSortAsc = true;
-  }
-  
-  // Update HTMX endpoint with sort parameters
-  updateHTMXSort();
-}
-
-/**
- * Apply sorting to current table state.
- * Immediately fetches sorted data with current sort parameters.
- */
-function updateHTMXSort() {
-  const tbody = document.getElementById('adsb-debug-body');
-  if (!tbody) return;
-  
-  fetchAndUpdateTable();
-  updateSortIndicators();
-}
-
 /**
  * Initialize table header click handlers for sorting.
  * Each column header with data-sort attribute becomes sortable.
@@ -409,20 +381,32 @@ function updateHTMXSort() {
 function initializeTableSorting() {
   const table = document.getElementById('adsb-debug-table');
   if (!table) return;
-  
-  const headers = table.querySelectorAll('th[data-sort]');
-  headers.forEach(h => {
-    h.addEventListener('click', function() {
-      const sortKey = this.getAttribute('data-sort');
-      handleSort(sortKey);
-    });
+
+  const thead = table.querySelector('thead');
+  if (!thead) return;
+
+  // Idempotent: don't stack multiple listeners on repeated init
+  thead.removeEventListener('click', handleHeaderClick);
+  thead.addEventListener('click', handleHeaderClick);
+
+  // Cosmetic: ensure headers show pointer
+  table.querySelectorAll('th[data-sort]').forEach(h => {
     h.style.cursor = 'pointer';
   });
-  
+
   const tbody = document.getElementById('adsb-debug-body');
   if (tbody) {
+    tbody.removeEventListener('click', handleTableBodyClick);
     tbody.addEventListener('click', handleTableBodyClick);
   }
+
+  updateSortIndicators();
+}
+
+function handleHeaderClick(event) {
+  const header = event.target.closest('th[data-sort]');
+  if (!header) return;
+  handleSort(header.getAttribute('data-sort'));
 }
 
 /**
@@ -438,8 +422,13 @@ function handleSort(sortKey) {
     currentSortAsc = true;
   }
   
-  // Update HTMX endpoint with sort parameters
+  // Update UI immediately and request new data
+  updateSortIndicators();
   updateHTMXSort();
+}
+
+function updateHTMXSort() {
+  fetchAndUpdateTable();
 }
 
 /**
@@ -453,7 +442,7 @@ function fetchAndUpdateTable() {
     ? `${baseUrl}?sort=${currentSortKey}&asc=${currentSortAsc}`
     : baseUrl;
   
-  console.log('[POLL] Fetching:', sortUrl);
+  console.log('[POLL] Fetching:', sortUrl, 'currentSortAsc=', currentSortAsc);
   
   fetch(sortUrl)
     .then(response => response.text())
@@ -462,6 +451,7 @@ function fetchAndUpdateTable() {
       if (tbody) {
         tbody.innerHTML = html;
         triggerHTMXAfterSettle();
+        updateSortIndicators();
       }
     })
     .catch(error => console.error('[POLL] Error fetching:', error));
@@ -531,13 +521,6 @@ function updateSortIndicators() {
  * Toggles sort direction if same column clicked twice.
  * @param {string} sortKey - Column to sort by (id, callsign, alt, spd, hdg, squawk, rssi)
  */
-
-// Ensure buttons are initialized
-setTimeout(() => {
-  if (document.getElementById('adsb-hide-overlay')) {
-    initializeButtons();
-  }
-}, 100);
 
 // Handle table body click with event delegation for row selection
 function handleTableBodyClick(event) {
