@@ -29,6 +29,30 @@ let currentSortAsc = true;    // Sort direction: true = ascending (▲), false =
 let pathsVisible = true;      // Track visibility toggle (Paths button)
 const MAX_TRACK_POINTS = 200; // Max polyline points per aircraft
 
+function applyTableFilter() {
+  const input = document.getElementById('adsb-table-search');
+  const tbody = document.getElementById('adsb-debug-body');
+  if (!tbody) return;
+
+  const query = (input?.value || '').toString().trim().toLowerCase();
+  const rows = tbody.querySelectorAll('tr');
+
+  rows.forEach(row => {
+    const haystack = (row.textContent || '').toString().toLowerCase();
+    const match = query === '' || haystack.includes(query);
+    row.style.display = match ? '' : 'none';
+  });
+}
+
+function initializeTableSearch() {
+  const input = document.getElementById('adsb-table-search');
+  if (!input) return;
+
+  input.addEventListener('input', () => {
+    applyTableFilter();
+  });
+}
+
 console.log('[ADSB] Script loaded, waiting for DOM...');
 
 // Initialize map and UI after DOM is ready
@@ -40,8 +64,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Initialize Leaflet map
   map = L.map('map').setView(center, zoom);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     maxZoom: 19,
+    subdomains: 'abcd',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
   }).addTo(map);
 
   // Initialize aircraft tracking store: ICAO -> {polyline, marker, coords[]}
@@ -49,6 +75,9 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Initialize table sorting UI
   initializeTableSorting();
+
+  // Initialize client-side table search
+  initializeTableSearch();
 
   // Initialize overlay buttons (clear tracks / toggle paths)
   initializeButtons();
@@ -188,6 +217,9 @@ document.addEventListener('htmx:afterSettle', function(event) {
         console.log('[HTMX] Selection restored for:', selectedAircraft);
       }
     }
+
+    // Reapply search filter after any table update
+    applyTableFilter();
   }
 });
 
@@ -263,8 +295,8 @@ function updateAircraft(data) {
       const segColor = colorByAltitude(c1.alt);
       const segment = L.polyline([[c1.lat, c1.lon], [c2.lat, c2.lon]], {
         color: segColor,
-        weight: 2,
-        opacity: 0.6
+        weight: 3,
+        opacity: 0.85
       });
       entry.polylineGroup.addLayer(segment);
     }
@@ -275,7 +307,7 @@ function updateAircraft(data) {
   const newColor = colorByAltitude(alt);
   const heading = data.heading || 0;
   const rotation = `transform: rotate(${heading}deg);`;
-  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24' style='${rotation}'><polygon points='12,2 4,20 12,15 20,20' fill='${newColor}'/></svg>`;
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24' class='plane-svg' style='${rotation}'><polygon points='12,2 4,20 12,15 20,20' fill='${newColor}' stroke='rgba(255,255,255,0.45)' stroke-width='1'/></svg>`;
   const icon = L.divIcon({ className: 'plane-divicon', html: svg, iconSize: [28, 28] });
 
   if (!entry.marker) {
@@ -452,6 +484,7 @@ function fetchAndUpdateTable() {
         tbody.innerHTML = html;
         triggerHTMXAfterSettle();
         updateSortIndicators();
+        applyTableFilter();
       }
     })
     .catch(error => console.error('[POLL] Error fetching:', error));
@@ -493,6 +526,9 @@ function triggerHTMXAfterSettle() {
       selectedRow.classList.add('selected');
     }
   }
+
+  // Keep current search filter applied
+  applyTableFilter();
 }
 
 /**

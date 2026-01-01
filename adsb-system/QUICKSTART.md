@@ -2,6 +2,21 @@
 
 ## Build & Run
 
+### One-Command Start (PowerShell)
+
+If you don't have Python installed, you can still start everything (server + simulator + web UI) with the included scripts:
+
+```powershell
+cd c:\Users\basti\Documents\Entwicklungsprojekte\adsb-system
+./run-all.ps1
+```
+
+Stop everything:
+
+```powershell
+./stop-all.ps1
+```
+
 ### One-Line Setup (PowerShell)
 
 ```powershell

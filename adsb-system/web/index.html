@@ -43,6 +43,11 @@
       pointer-events: auto;
       cursor: pointer;
     }
+
+    /* Leaflet divIcon SVG: keep aircraft visible on dark tiles */
+    .plane-divicon svg.plane-svg {
+      filter: drop-shadow(0 0 2px rgba(0,0,0,0.85)) drop-shadow(0 0 6px rgba(30,126,200,0.25));
+    }
     
     /* Popup info box styling */
     .track-popup {
@@ -137,6 +142,12 @@
         <button id="adsb-toggle-polys" title="Show/hide flight paths" style="padding:4px 6px;border-radius:4px;border:none;cursor:pointer;background:#1e7ec8;color:#fff;margin-right:4px;font-size:11px;">Paths</button>
         <button id="adsb-hide-overlay" title="Hide this panel" style="padding:4px 6px;border-radius:4px;border:none;cursor:pointer;background:#0d47a1;color:#fff;font-size:11px;">Hide</button>
       </div>
+    </div>
+
+    <!-- Search (filters table rows client-side) -->
+    <div style="flex:0 0 auto;margin-bottom:6px;">
+      <input id="adsb-table-search" type="search" placeholder="Search (ICAO, Callsign, Alt, Spd, Hdg, SQK, RSSI...)" autocomplete="off"
+        style="width:100%;box-sizing:border-box;padding:6px 8px;border-radius:6px;border:1px solid #1e7ec8;background:#0f1019;color:#b7d9ff;outline:none;font-size:12px;" />
     </div>
 
     <!-- Scroll area (only table + note scroll) -->

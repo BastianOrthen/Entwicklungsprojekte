@@ -5,8 +5,10 @@ const center = [50, 8];
 const zoom = 6;
 
 const map = L.map('map').setView(center, zoom);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   maxZoom: 19,
+  subdomains: 'abcd',
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
 }).addTo(map);
 
 // Track state per ICAO: { polyline, marker, coords[] }
@@ -49,7 +51,7 @@ function colorForId(id) {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h << 5) - h + id.charCodeAt(i);
   const hue = Math.abs(h) % 360;
-  return `hsl(${hue},70%,45%)`;
+  return `hsl(${hue},85%,60%)`;
 }
 
 // Handle HTMX swaps: when the table tbody is updated, process new aircraft data
@@ -125,8 +127,8 @@ function updateAircraft(data) {
   if (!entry.polyline) {
     entry.polyline = L.polyline(entry.coords, {
       color: colorForId(id),
-      weight: 2,
-      opacity: 0.6
+      weight: 3,
+      opacity: 0.85
     }).addTo(map);
   } else {
     entry.polyline.setLatLngs(entry.coords);
@@ -135,7 +137,7 @@ function updateAircraft(data) {
   // Create or update marker
   const popup = `<strong>${id}</strong><br/>Alt: ${alt} ft<br/>Spd: ${speed} kt`;
   const newColor = colorByAltitude(alt);
-  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24'><polygon points='12,2 4,20 12,15 20,20' fill='${newColor}'/></svg>`;
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24' class='plane-svg'><polygon points='12,2 4,20 12,15 20,20' fill='${newColor}' stroke='rgba(255,255,255,0.45)' stroke-width='1'/></svg>`;
   const icon = L.divIcon({ className: 'plane-divicon', html: svg, iconSize: [28, 28] });
 
   if (!entry.marker) {
@@ -427,7 +429,7 @@ evtSource.onmessage = function(e){
       const color = colorByAltitude(alt);
       // create an inline SVG icon to avoid emoji/encoding issues
       // inline SVG (no XML prolog) and class for targeting; avoids parsing/display artifacts
-      const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24' class='plane-svg'><polygon points='12,2 4,20 12,15 20,20' fill='${color}'/></svg>`;
+      const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24' class='plane-svg'><polygon points='12,2 4,20 12,15 20,20' fill='${color}' stroke='rgba(255,255,255,0.45)' stroke-width='1'/></svg>`;
       const icon = L.divIcon({ className: 'plane-divicon', html: svg, iconSize: [28,28] });
       const marker = L.marker([lat, lon], { icon, title: id, zIndexOffset: 1000 }).addTo(map).bindPopup(popup);
       // click selects aircraft for overlay details and centers it (preserving zoom level)
@@ -474,7 +476,7 @@ evtSource.onmessage = function(e){
       const segmentPoly = L.polyline([prevCoord, [lat, lon]], { 
         color: segmentColor, 
         weight: 4, 
-        opacity: 0.9 
+        opacity: 0.85 
       }).addTo(map);
       // put track segments behind markers
       if (segmentPoly.bringToBack) try { segmentPoly.bringToBack(); } catch (e) {}
@@ -486,7 +488,7 @@ evtSource.onmessage = function(e){
       
       // update marker position and color (color based on current altitude)
       const newColor = colorByAltitude(alt);
-      const newSvg = `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24' class='plane-svg'><polygon points='12,2 4,20 12,15 20,20' fill='${newColor}'/></svg>`;
+      const newSvg = `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24' class='plane-svg'><polygon points='12,2 4,20 12,15 20,20' fill='${newColor}' stroke='rgba(255,255,255,0.45)' stroke-width='1'/></svg>`;
       const newIcon = L.divIcon({ className: 'plane-divicon', html: newSvg, iconSize: [28,28] });
       entry.marker.setIcon(newIcon).setLatLng([lat, lon]).setPopupContent(popup);
       
