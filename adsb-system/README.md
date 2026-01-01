@@ -38,8 +38,8 @@ Simulator starting, posting to: http://localhost:8080/ingest
 
 ### Fenster 3: Web-Server
 ```powershell
-cd "C:\Users\basti\Documents\Entwicklungsprojekte\adsb-system\web"
-python -m http.server 3000
+cd "C:\Users\basti\Documents\Entwicklungsprojekte\adsb-system"
+& .\bin\web.exe -http :3000 -root .\web
 ```
 
 ## Test im Browser
@@ -86,7 +86,7 @@ curl.exe -X POST http://localhost:8080/ingest -H "Content-Type: application/json
 
 ### Alle Services sofort beenden
 ```powershell
-taskkill /F /IM server.exe /IM simulator.exe /IM python.exe
+taskkill /F /IM server.exe /IM simulator.exe /IM web.exe
 ```
 
 ## Architektur

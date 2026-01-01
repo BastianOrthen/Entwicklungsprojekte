@@ -73,14 +73,26 @@ func parseAircraft(raw map[string]interface{}, now time.Time) Aircraft {
 	lon, _ := raw["lon"].(float64)
 	alt := parseInt(raw["altitude"])
 	spd := parseInt(raw["gs"])
+	trk := parseInt(raw["track"])
+	heading := parseInt(raw["track"])
+	vr := parseInt(raw["vert_rate"])
+	squawk, _ := raw["squawk"].(string)
 
 	return Aircraft{
-		ICAO:      icao,
-		Latitude:  lat,
-		Longitude: lon,
-		Altitude:  alt,
-		Speed:     spd,
-		Seen:      now,
+		ICAO:         icao,
+		Latitude:     lat,
+		Longitude:    lon,
+		Altitude:     alt,
+		Speed:        spd,
+		Heading:      heading,
+		Track:        trk,
+		Squawk:       squawk,
+		VerticalRate: vr,
+		GeoAlt:       alt,
+		BaroAlt:      alt,
+		Velocity:     0,
+		Source:       "dump1090",
+		Seen:         now,
 	}
 }
 

@@ -4,7 +4,7 @@
 
 ### One-Command Start (PowerShell)
 
-If you don't have Python installed, you can still start everything (server + simulator + web UI) with the included scripts:
+Start everything (server + simulator + web UI) with the included scripts:
 
 ```powershell
 cd c:\Users\basti\Documents\Entwicklungsprojekte\adsb-system
@@ -22,7 +22,7 @@ Stop everything:
 ```powershell
 cd c:\Users\basti\Documents\Entwicklungsprojekte\adsb-system
 # Build
-go build -o bin/server.exe ./cmd/server; go build -o bin/simulator.exe ./cmd/simulator; Write-Host "✓ Build complete"
+go build -o bin/server.exe ./cmd/server; go build -o bin/simulator.exe ./cmd/simulator; go build -o bin/web.exe ./cmd/web; Write-Host "✓ Build complete"
 
 # Terminal 1: Server
 Start-Process -FilePath ".\bin\server.exe" -ArgumentList "-http :8080" -NoNewWindow
@@ -31,7 +31,7 @@ Start-Process -FilePath ".\bin\server.exe" -ArgumentList "-http :8080" -NoNewWin
 Start-Sleep -Seconds 1; Start-Process -FilePath ".\bin\simulator.exe" -ArgumentList "-target http://localhost:8080/ingest" -NoNewWindow
 
 # Terminal 3: Web Server
-Start-Sleep -Seconds 1; cd web; Start-Process -NoNewWindow -FilePath python -ArgumentList "-m http.server 3000"
+Start-Sleep -Seconds 1; Start-Process -FilePath ".\bin\web.exe" -ArgumentList "-http :3000 -root .\\web" -NoNewWindow
 
 # Open browser
 Start-Sleep -Seconds 2; Start-Process "http://localhost:3000"
@@ -174,7 +174,7 @@ go mod graph
 
 ```powershell
 # Stop all services
-taskkill /F /IM server.exe /IM simulator.exe /IM python.exe
+taskkill /F /IM server.exe /IM simulator.exe /IM web.exe
 
 # Remove binaries
 rm bin/*.exe

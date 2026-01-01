@@ -18,6 +18,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -29,6 +30,11 @@ func main() {
 	var target string
 	flag.StringVar(&target, "target", "http://localhost:8080/ingest", "ingest endpoint for simulated aircraft")
 	flag.Parse()
+	if target == "http://localhost:8080/ingest" {
+		if v := strings.TrimSpace(os.Getenv("SERVER_URL")); v != "" {
+			target = v
+		}
+	}
 
 	log.Printf("Simulator starting, posting to: %s", target)
 

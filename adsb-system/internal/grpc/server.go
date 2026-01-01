@@ -8,12 +8,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/basti/adsb-system/internal/adsb"
 )
@@ -315,12 +318,41 @@ func (b *Broadcaster) handleAircraftRows(w http.ResponseWriter, r *http.Request)
 		if squawk == "" {
 			squawk = "-"
 		}
+		seenStr := ""
+		if !a.Seen.IsZero() {
+			seenStr = a.Seen.UTC().Format(time.RFC3339)
+		}
+		source := a.Source
+		if source == "" {
+			source = "unknown"
+		}
+
+		sourceKey := strings.ToLower(strings.TrimSpace(source))
+		rowAccent := ""
+		callsignBadge := ""
+		switch sourceKey {
+		case "sim", "simulator", "unknown", "":
+			rowAccent = "border-left:3px solid #c5483f;"
+			callsignBadge = `<span style="display:inline-block;min-width:34px;padding:1px 4px;margin-right:6px;border-radius:4px;background:rgba(197,72,63,0.25);border:1px solid rgba(197,72,63,0.65);color:#ffb3ad;font-size:10px;letter-spacing:0.5px;">SIM</span>`
+		case "internet", "net", "api", "online":
+			rowAccent = "border-left:3px solid #1e7ec8;"
+			callsignBadge = `<span style="display:inline-block;min-width:34px;padding:1px 4px;margin-right:6px;border-radius:4px;background:rgba(30,126,200,0.22);border:1px solid rgba(30,126,200,0.7);color:#b7d9ff;font-size:10px;letter-spacing:0.5px;">NET</span>`
+		default:
+			// fallback: treat as simulator-style
+			rowAccent = "border-left:3px solid #c5483f;"
+			callsignBadge = `<span style="display:inline-block;min-width:34px;padding:1px 4px;margin-right:6px;border-radius:4px;background:rgba(197,72,63,0.25);border:1px solid rgba(197,72,63,0.65);color:#ffb3ad;font-size:10px;letter-spacing:0.5px;">SIM</span>`
+		}
+		sourceAttr := html.EscapeString(source)
+		callsignAttr := html.EscapeString(callsign)
+		squawkAttr := html.EscapeString(squawk)
+		seenAttr := html.EscapeString(seenStr)
+		originAttr := html.EscapeString(a.Origin)
 		rssi := fmt.Sprintf("%.1f", a.RSSI)
 		predicted := "N" // Can be extended for prediction logic
 
-		fmt.Fprintf(w, `<tr id="aircraft-%s" data-lat="%.5f" data-lon="%.5f" style="background-color:#2d3748;color:#b7d9ff;border-bottom:1px solid #3d4959;">
+		fmt.Fprintf(w, `<tr id="aircraft-%s" data-lat="%.5f" data-lon="%.5f" data-source="%s" data-seen="%s" data-callsign="%s" data-squawk="%s" data-rssi="%s" data-heading="%d" data-track="%d" data-vertical-rate="%d" data-messages="%d" data-on-ground="%t" data-origin="%s" data-geo-alt-ft="%d" data-baro-alt-ft="%d" data-velocity-ms="%.3f" style="background-color:#2d3748;color:#b7d9ff;border-bottom:1px solid #3d4959;%s">
   <td>%s</td>
-  <td>%s</td>
+	<td>%s%s</td>
   <td style="text-align:right;">%d</td>
   <td style="text-align:right;">%d</td>
   <td style="text-align:right;">%d</td>
@@ -328,6 +360,7 @@ func (b *Broadcaster) handleAircraftRows(w http.ResponseWriter, r *http.Request)
   <td style="text-align:right;">%s</td>
   <td style="text-align:center;">%s</td>
 </tr>
-`, a.ICAO, a.Latitude, a.Longitude, a.ICAO, callsign, a.Altitude, a.Speed, a.Heading, squawk, rssi, predicted)
+`, a.ICAO, a.Latitude, a.Longitude, sourceAttr, seenAttr, callsignAttr, squawkAttr, rssi, a.Heading, a.Track, a.VerticalRate, a.Messages, a.OnGround, originAttr, a.GeoAlt, a.BaroAlt, a.Velocity,
+			rowAccent, a.ICAO, callsignBadge, callsignAttr, a.Altitude, a.Speed, a.Heading, squawkAttr, rssi, predicted)
 	}
 }

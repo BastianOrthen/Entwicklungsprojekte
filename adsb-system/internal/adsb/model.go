@@ -24,9 +24,13 @@ type Aircraft struct {
 	Track        int    `json:"track,omitempty" db:"track"`                 // Track angle
 
 	// Receiver signal and metadata
-	Messages int       `json:"messages,omitempty" db:"messages"`   // Number of messages received
-	RSSI     float64   `json:"rssi,omitempty" db:"rssi"`           // Signal strength (dBm)
-	OnGround bool      `json:"on_ground,omitempty" db:"on_ground"` // Aircraft on ground
-	Source   string    `json:"source,omitempty" db:"source"`       // Data source (sim, dump1090, etc)
-	Seen     time.Time `json:"seen" db:"seen"`                     // Last position report time
+	Messages int       `json:"messages,omitempty" db:"messages"`             // Number of messages received
+	RSSI     float64   `json:"rssi,omitempty" db:"rssi"`                     // Signal strength (dBm)
+	OnGround bool      `json:"on_ground,omitempty" db:"on_ground"`           // Aircraft on ground
+	Source   string    `json:"source,omitempty" db:"source"`                 // Data source (sim, dump1090, etc)
+	Origin   string    `json:"origin_country,omitempty" db:"origin_country"` // Origin country / data-provided region label
+	GeoAlt   int       `json:"geo_alt_ft,omitempty" db:"geo_alt_ft"`         // Geometric altitude (feet), if available
+	BaroAlt  int       `json:"baro_alt_ft,omitempty" db:"baro_alt_ft"`       // Barometric altitude (feet), if available
+	Velocity float64   `json:"velocity_ms,omitempty" db:"velocity_ms"`       // Raw velocity (m/s), if provided by source
+	Seen     time.Time `json:"seen" db:"seen"`                               // Last position report time
 }

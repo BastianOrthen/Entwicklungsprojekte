@@ -48,6 +48,92 @@
     .plane-divicon svg.plane-svg {
       filter: drop-shadow(0 0 2px rgba(0,0,0,0.85)) drop-shadow(0 0 6px rgba(30,126,200,0.25));
     }
+
+    /* Leaflet zoom controls (+/-) themed */
+    .leaflet-control-zoom a,
+    .leaflet-control-zoom a:link,
+    .leaflet-control-zoom a:visited {
+      background: rgba(15,16,25,0.95);
+      color: #1e7ec8 !important;
+      border: none;
+      box-shadow: none;
+      font-weight: bold;
+      text-decoration: none;
+    }
+
+    .leaflet-control-zoom a:hover {
+      background: rgba(15,16,25,0.98);
+      color: #ffffff;
+    }
+
+    .leaflet-control-zoom a.leaflet-disabled {
+      opacity: 0.55;
+    }
+
+    .leaflet-bar {
+      box-shadow: none;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 1px solid #1e7ec8;
+    }
+
+    /* Leaflet adds a thicker grey border on touch devices; override it */
+    .leaflet-touch .leaflet-bar {
+      border: 1px solid #1e7ec8;
+      background-clip: padding-box;
+    }
+
+    .leaflet-bar a {
+      border-bottom: 1px solid #1e7ec8;
+    }
+
+    .leaflet-bar a:last-child {
+      border-bottom: none;
+    }
+
+    /* Explicit divider between + and - (robust across Leaflet/touch styles) */
+    .leaflet-control-zoom a.leaflet-control-zoom-in {
+      border-bottom: 1px solid #1e7ec8 !important;
+      box-shadow: inset 0 -1px 0 #1e7ec8;
+    }
+
+    /* Overlay scrollbar theming + layout */
+    #adsb-debug-overlay, #adsb-layer-overlay {
+      scrollbar-color: #1e7ec8 rgba(15,16,25,0.95);
+      scrollbar-width: thin;
+    }
+
+    #adsb-debug-overlay ::-webkit-scrollbar,
+    #adsb-layer-overlay ::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+
+    #adsb-debug-overlay ::-webkit-scrollbar-track,
+    #adsb-layer-overlay ::-webkit-scrollbar-track {
+      background: rgba(15,16,25,0.95);
+    }
+
+    #adsb-debug-overlay ::-webkit-scrollbar-thumb,
+    #adsb-layer-overlay ::-webkit-scrollbar-thumb {
+      background: rgba(30,126,200,0.55);
+      border: 1px solid #1e7ec8;
+      border-radius: 10px;
+    }
+
+    #adsb-debug-overlay ::-webkit-scrollbar-thumb:hover,
+    #adsb-layer-overlay ::-webkit-scrollbar-thumb:hover {
+      background: rgba(30,126,200,0.75);
+    }
+
+    /* Keep scrollbars from overlaying content and the resize handle */
+    #adsb-overlay-scroll,
+    #adsb-layer-scroll {
+      scrollbar-gutter: stable both-edges;
+      box-sizing: border-box;
+      padding-right: 4px;
+      padding-bottom: 16px;
+    }
     
     /* Popup info box styling */
     .track-popup {
@@ -123,6 +209,74 @@
     #adsb-debug-table td, #adsb-debug-table th {
       color: inherit;
     }
+
+    /* Dockable overlay modules */
+    #adsb-debug-overlay, #adsb-layer-overlay {
+      position: fixed;
+      z-index: 99999;
+      background: rgba(15,16,25,0.95);
+      color: #b7d9ff;
+      padding: 8px;
+      border-radius: 6px;
+      font-family: Arial,Helvetica,sans-serif;
+      font-size: 13px;
+      box-sizing: border-box;
+      width: min(500px, calc(100vw - 16px));
+      height: min(60vh, calc(100vh - 16px));
+      min-width: 320px;
+      min-height: 220px;
+      border: 1px solid #1e7ec8;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: fixed;
+      /* for resize handle positioning */
+      isolation: isolate;
+    }
+
+    /* Default placement */
+    #adsb-debug-overlay { left: 8px; bottom: 8px; }
+    #adsb-layer-overlay { right: 8px; top: 8px; width: min(360px, calc(100vw - 16px)); height: min(320px, calc(100vh - 16px)); min-width: 260px; min-height: 200px; }
+
+    /* Dock positions */
+    #adsb-debug-overlay.dock-bottom-left, #adsb-layer-overlay.dock-bottom-left { left: 8px; bottom: 8px; right: auto; top: auto; }
+    #adsb-debug-overlay.dock-bottom-right, #adsb-layer-overlay.dock-bottom-right { right: 8px; bottom: 8px; left: auto; top: auto; }
+    #adsb-debug-overlay.dock-top-left, #adsb-layer-overlay.dock-top-left { left: 8px; top: 8px; right: auto; bottom: auto; }
+    #adsb-debug-overlay.dock-top-right, #adsb-layer-overlay.dock-top-right { right: 8px; top: 8px; left: auto; bottom: auto; }
+
+    /* Drag handle */
+    #adsb-overlay-handle, #adsb-layer-handle {
+      cursor: move;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+
+    /* Resize handle (bottom-right corner) */
+    #adsb-overlay-resize, #adsb-layer-resize {
+      position: absolute;
+      right: 6px;
+      bottom: 6px;
+      width: 14px;
+      height: 14px;
+      cursor: nwse-resize;
+      touch-action: none;
+      opacity: 0.9;
+      z-index: 2;
+    }
+
+    #adsb-overlay-resize::before, #adsb-layer-resize::before {
+      content: '';
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      width: 10px;
+      height: 10px;
+      border-right: 2px solid #1e7ec8;
+      border-bottom: 2px solid #1e7ec8;
+      border-radius: 0 0 3px 0;
+      box-sizing: border-box;
+    }
   </style>
 </head>
 <body>
@@ -133,13 +287,14 @@
   <script src="main-htmx.js"></script>
   
   <!-- Fixed overlay with aircraft table and controls -->
-  <div id="adsb-debug-overlay" style="position:fixed;left:8px;bottom:8px;z-index:99999;background:rgba(15,16,25,0.95);color:#b7d9ff;padding:8px;border-radius:6px;font-family:Arial,Helvetica,sans-serif;font-size:13px;max-width:500px;max-height:60vh;border:1px solid #1e7ec8;display:flex;flex-direction:column;">
+  <div id="adsb-debug-overlay" class="dock-bottom-left">
     <!-- Header with title and buttons (always visible) -->
-    <div style="flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+    <div id="adsb-overlay-handle" style="flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
       <strong>✈ ADSB Tracking</strong>
       <div>
         <button id="adsb-clear-tracks" title="Clear all flight paths" style="padding:4px 6px;border-radius:4px;border:none;cursor:pointer;background:#c5483f;color:#fff;margin-right:4px;font-size:11px;">Clear</button>
         <button id="adsb-toggle-polys" title="Show/hide flight paths" style="padding:4px 6px;border-radius:4px;border:none;cursor:pointer;background:#1e7ec8;color:#fff;margin-right:4px;font-size:11px;">Paths</button>
+        <button id="adsb-follow" title="Follow selected aircraft" style="padding:4px 6px;border-radius:4px;border:none;cursor:pointer;background:#1e7ec8;color:#fff;margin-right:4px;font-size:11px;opacity:0.75;">Follow: Off</button>
         <button id="adsb-hide-overlay" title="Hide this panel" style="padding:4px 6px;border-radius:4px;border:none;cursor:pointer;background:#0d47a1;color:#fff;font-size:11px;">Hide</button>
       </div>
     </div>
@@ -175,6 +330,51 @@
       Click column headers to sort • Click rows or markers to select aircraft
     </div>
     </div>
+
+    <!-- Resize handle -->
+    <div id="adsb-overlay-resize" title="Resize panel"></div>
+  </div>
+
+  <!-- Separate dockable overlay: Layer tree + map styles -->
+  <div id="adsb-layer-overlay">
+    <div id="adsb-layer-handle" style="flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+      <strong>🗺 Layers</strong>
+      <div style="font-size:11px;opacity:0.85;color:#8fc6ff;">Tree</div>
+    </div>
+
+    <div id="adsb-layer-scroll" style="flex:1 1 auto;overflow:auto;">
+      <!-- Tree: Data Sources -->
+      <div style="border:1px solid #1e7ec8;border-radius:6px;padding:8px;background:#0f1019;margin-bottom:8px;">
+        <div style="font-size:11px;opacity:0.9;color:#8fc6ff;margin-bottom:6px;">Data Sources</div>
+        <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input id="adsb-layer-sim" type="checkbox" checked />Simulator</label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input id="adsb-layer-internet" type="checkbox" checked />Internet</label>
+        </div>
+      </div>
+
+      <!-- Tree: Map Layout -->
+      <div style="border:1px solid #1e7ec8;border-radius:6px;padding:8px;background:#0f1019;">
+        <div style="font-size:11px;opacity:0.9;color:#8fc6ff;margin-bottom:6px;">Map Layout</div>
+        <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input id="adsb-mapstyle-dark" name="adsb-mapstyle" type="radio" checked />Dark Map</label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input id="adsb-mapstyle-light" name="adsb-mapstyle" type="radio" />Light Map</label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input id="adsb-mapstyle-sea" name="adsb-mapstyle" type="radio" />Sea Map</label>
+        </div>
+      </div>
+
+      <!-- Settings -->
+      <div style="border:1px solid #1e7ec8;border-radius:6px;padding:8px;background:#0f1019;margin-top:8px;">
+        <div style="font-size:11px;opacity:0.9;color:#8fc6ff;margin-bottom:6px;">Settings</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;">
+          <label for="adsb-setting-tracklen" style="cursor:pointer;">Tracklänge (Punkte)</label>
+          <input id="adsb-setting-tracklen" type="number" min="10" max="1000" step="10"
+            style="width:110px;box-sizing:border-box;padding:6px 8px;border-radius:6px;border:1px solid #1e7ec8;background:#0f1019;color:#b7d9ff;outline:none;font-size:12px;" />
+        </div>
+        <div style="margin-top:6px;font-size:11px;opacity:0.85;color:#8fc6ff;">Begrenzt die Anzahl gespeicherter Trackpunkte pro Flugzeug.</div>
+      </div>
+    </div>
+
+    <div id="adsb-layer-resize" title="Resize panel"></div>
   </div>
   
   <!-- Floating button shown when overlay is hidden -->
@@ -205,6 +405,338 @@
           showIcon.style.display = 'none';
         };
       }
+    })();
+
+    // Docking: drag the panel by its header and snap to a corner.
+    (function(){
+      const overlay = document.getElementById('adsb-debug-overlay');
+      const handle = document.getElementById('adsb-overlay-handle');
+      if (!overlay || !handle) return;
+
+      const STORAGE_KEY = 'adsb.overlay.dock';
+      const DOCK_CLASSES = ['dock-bottom-left', 'dock-bottom-right', 'dock-top-left', 'dock-top-right'];
+      const MARGIN = 8;
+
+      function clearDockClasses() {
+        DOCK_CLASSES.forEach(c => overlay.classList.remove(c));
+      }
+
+      function setDockClass(cls) {
+        clearDockClasses();
+        overlay.classList.add(cls);
+        // Ensure inline positioning from dragging doesn't override docked layout
+        overlay.style.left = '';
+        overlay.style.top = '';
+        overlay.style.right = '';
+        overlay.style.bottom = '';
+        try { localStorage.setItem(STORAGE_KEY, cls); } catch (_) {}
+      }
+
+      // Restore last dock position
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved && DOCK_CLASSES.includes(saved)) setDockClass(saved);
+      } catch (_) {}
+
+      let dragging = false;
+      let offsetX = 0;
+      let offsetY = 0;
+
+      function clamp(n, min, max) {
+        return Math.max(min, Math.min(max, n));
+      }
+
+      function onPointerDown(e) {
+        // Only left mouse / primary pointer
+        if (e.button !== undefined && e.button !== 0) return;
+        if (overlay.style.display === 'none') return;
+
+        const rect = overlay.getBoundingClientRect();
+        dragging = true;
+        offsetX = (e.clientX - rect.left);
+        offsetY = (e.clientY - rect.top);
+
+        clearDockClasses();
+        overlay.style.right = 'auto';
+        overlay.style.bottom = 'auto';
+        overlay.style.left = rect.left + 'px';
+        overlay.style.top = rect.top + 'px';
+        e.preventDefault();
+      }
+
+      function onPointerMove(e) {
+        if (!dragging) return;
+        const rect = overlay.getBoundingClientRect();
+        const w = rect.width;
+        const h = rect.height;
+
+        const maxLeft = window.innerWidth - w - MARGIN;
+        const maxTop = window.innerHeight - h - MARGIN;
+        const nextLeft = clamp(e.clientX - offsetX, MARGIN, Math.max(MARGIN, maxLeft));
+        const nextTop = clamp(e.clientY - offsetY, MARGIN, Math.max(MARGIN, maxTop));
+
+        overlay.style.left = nextLeft + 'px';
+        overlay.style.top = nextTop + 'px';
+        e.preventDefault();
+      }
+
+      function nearestDockClass() {
+        const rect = overlay.getBoundingClientRect();
+        const candidates = [
+          { cls: 'dock-top-left', x: MARGIN, y: MARGIN },
+          { cls: 'dock-top-right', x: window.innerWidth - rect.width - MARGIN, y: MARGIN },
+          { cls: 'dock-bottom-left', x: MARGIN, y: window.innerHeight - rect.height - MARGIN },
+          { cls: 'dock-bottom-right', x: window.innerWidth - rect.width - MARGIN, y: window.innerHeight - rect.height - MARGIN },
+        ];
+
+        let best = candidates[0];
+        let bestD = Infinity;
+        for (const c of candidates) {
+          const dx = rect.left - c.x;
+          const dy = rect.top - c.y;
+          const d = dx * dx + dy * dy;
+          if (d < bestD) {
+            bestD = d;
+            best = c;
+          }
+        }
+        return best.cls;
+      }
+
+      function onPointerUp(e) {
+        if (!dragging) return;
+        dragging = false;
+        const cls = nearestDockClass();
+        setDockClass(cls);
+        e.preventDefault();
+      }
+
+      // Use Pointer Events if available
+      handle.addEventListener('pointerdown', onPointerDown);
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerup', onPointerUp);
+    })();
+
+    // Resizing: drag the bottom-right handle to change panel size.
+    (function(){
+      const overlay = document.getElementById('adsb-debug-overlay');
+      const resizeHandle = document.getElementById('adsb-overlay-resize');
+      if (!overlay || !resizeHandle) return;
+
+      const STORAGE_KEY = 'adsb.overlay.size';
+      const MARGIN = 8;
+      const MIN_W = 320;
+      const MIN_H = 220;
+
+      function clamp(n, min, max) {
+        return Math.max(min, Math.min(max, n));
+      }
+
+      function applySize(w, h) {
+        const maxW = Math.max(MIN_W, window.innerWidth - (MARGIN * 2));
+        const maxH = Math.max(MIN_H, window.innerHeight - (MARGIN * 2));
+        const cw = clamp(w, MIN_W, maxW);
+        const ch = clamp(h, MIN_H, maxH);
+        overlay.style.width = cw + 'px';
+        overlay.style.height = ch + 'px';
+      }
+
+      // Restore last size
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed.w === 'number' && typeof parsed.h === 'number') {
+            applySize(parsed.w, parsed.h);
+          }
+        }
+      } catch (_) {}
+
+      let resizing = false;
+      let startX = 0;
+      let startY = 0;
+      let startW = 0;
+      let startH = 0;
+
+      function onPointerDown(e) {
+        if (e.button !== undefined && e.button !== 0) return;
+        if (overlay.style.display === 'none') return;
+        resizing = true;
+        const rect = overlay.getBoundingClientRect();
+        startX = e.clientX;
+        startY = e.clientY;
+        startW = rect.width;
+        startH = rect.height;
+        resizeHandle.setPointerCapture && resizeHandle.setPointerCapture(e.pointerId);
+        e.preventDefault();
+        e.stopPropagation();
+      }
+
+      function onPointerMove(e) {
+        if (!resizing) return;
+        const nextW = startW + (e.clientX - startX);
+        const nextH = startH + (e.clientY - startY);
+        applySize(nextW, nextH);
+        e.preventDefault();
+      }
+
+      function onPointerUp(e) {
+        if (!resizing) return;
+        resizing = false;
+        try {
+          const rect = overlay.getBoundingClientRect();
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ w: Math.round(rect.width), h: Math.round(rect.height) }));
+        } catch (_) {}
+        e.preventDefault();
+      }
+
+      // Re-clamp size on window resize
+      window.addEventListener('resize', () => {
+        try {
+          const rect = overlay.getBoundingClientRect();
+          applySize(rect.width, rect.height);
+        } catch (_) {}
+      });
+
+      resizeHandle.addEventListener('pointerdown', onPointerDown);
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerup', onPointerUp);
+    })();
+
+    // Free-drag + resizing for the layer overlay panel (no snapping).
+    (function(){
+      const overlay = document.getElementById('adsb-layer-overlay');
+      const handle = document.getElementById('adsb-layer-handle');
+      const resizeHandle = document.getElementById('adsb-layer-resize');
+      if (!overlay || !handle || !resizeHandle) return;
+
+      const POS_KEY = 'adsb.layerOverlay.pos';
+      const SIZE_KEY = 'adsb.layerOverlay.size';
+      const MARGIN = 8;
+      const MIN_W = 260;
+      const MIN_H = 200;
+
+      // Restore position (free-drag)
+      try {
+        const raw = localStorage.getItem(POS_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed.left === 'number' && typeof parsed.top === 'number') {
+            overlay.style.right = 'auto';
+            overlay.style.bottom = 'auto';
+            overlay.style.left = Math.max(MARGIN, parsed.left) + 'px';
+            overlay.style.top = Math.max(MARGIN, parsed.top) + 'px';
+          }
+        }
+      } catch (_) {}
+
+      // Restore size
+      try {
+        const raw = localStorage.getItem(SIZE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed.w === 'number' && typeof parsed.h === 'number') {
+            overlay.style.width = Math.max(MIN_W, parsed.w) + 'px';
+            overlay.style.height = Math.max(MIN_H, parsed.h) + 'px';
+          }
+        }
+      } catch (_) {}
+
+      function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
+
+      // Drag (no snapping)
+      let dragging = false;
+      let offsetX = 0;
+      let offsetY = 0;
+
+      function onDragDown(e) {
+        if (e.button !== undefined && e.button !== 0) return;
+        const rect = overlay.getBoundingClientRect();
+        dragging = true;
+        offsetX = e.clientX - rect.left;
+        offsetY = e.clientY - rect.top;
+        overlay.style.right = 'auto';
+        overlay.style.bottom = 'auto';
+        overlay.style.left = rect.left + 'px';
+        overlay.style.top = rect.top + 'px';
+        e.preventDefault();
+      }
+
+      function onDragMove(e) {
+        if (!dragging) return;
+        const rect = overlay.getBoundingClientRect();
+        const w = rect.width;
+        const h = rect.height;
+        const maxLeft = window.innerWidth - w - MARGIN;
+        const maxTop = window.innerHeight - h - MARGIN;
+        overlay.style.left = clamp(e.clientX - offsetX, MARGIN, Math.max(MARGIN, maxLeft)) + 'px';
+        overlay.style.top = clamp(e.clientY - offsetY, MARGIN, Math.max(MARGIN, maxTop)) + 'px';
+        e.preventDefault();
+      }
+
+      function onDragUp(e) {
+        if (!dragging) return;
+        dragging = false;
+        try {
+          const rect = overlay.getBoundingClientRect();
+          localStorage.setItem(POS_KEY, JSON.stringify({ left: Math.round(rect.left), top: Math.round(rect.top) }));
+        } catch (_) {}
+        e.preventDefault();
+      }
+
+      handle.addEventListener('pointerdown', onDragDown);
+      window.addEventListener('pointermove', onDragMove);
+      window.addEventListener('pointerup', onDragUp);
+
+      // Resize
+      let resizing = false;
+      let startX = 0, startY = 0, startW = 0, startH = 0;
+
+      function applySize(w, h) {
+        const maxW = Math.max(MIN_W, window.innerWidth - (MARGIN * 2));
+        const maxH = Math.max(MIN_H, window.innerHeight - (MARGIN * 2));
+        overlay.style.width = clamp(w, MIN_W, maxW) + 'px';
+        overlay.style.height = clamp(h, MIN_H, maxH) + 'px';
+      }
+
+      function onResizeDown(e) {
+        if (e.button !== undefined && e.button !== 0) return;
+        resizing = true;
+        const rect = overlay.getBoundingClientRect();
+        startX = e.clientX;
+        startY = e.clientY;
+        startW = rect.width;
+        startH = rect.height;
+        resizeHandle.setPointerCapture && resizeHandle.setPointerCapture(e.pointerId);
+        e.preventDefault();
+        e.stopPropagation();
+      }
+
+      function onResizeMove(e) {
+        if (!resizing) return;
+        applySize(startW + (e.clientX - startX), startH + (e.clientY - startY));
+        e.preventDefault();
+      }
+
+      function onResizeUp(e) {
+        if (!resizing) return;
+        resizing = false;
+        try {
+          const rect = overlay.getBoundingClientRect();
+          localStorage.setItem(SIZE_KEY, JSON.stringify({ w: Math.round(rect.width), h: Math.round(rect.height) }));
+        } catch (_) {}
+        e.preventDefault();
+      }
+
+      resizeHandle.addEventListener('pointerdown', onResizeDown);
+      window.addEventListener('pointermove', onResizeMove);
+      window.addEventListener('pointerup', onResizeUp);
+      window.addEventListener('resize', () => {
+        try {
+          const rect = overlay.getBoundingClientRect();
+          applySize(rect.width, rect.height);
+        } catch (_) {}
+      });
     })();
   </script>
 </body>
