@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -26,6 +27,7 @@ func RunDump1090Poll(ctx context.Context, url string) <-chan Aircraft {
 		client := &http.Client{Timeout: 5 * time.Second}
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
+		lastStatusLog := time.Time{}
 
 		for {
 			select {
@@ -37,26 +39,52 @@ func RunDump1090Poll(ctx context.Context, url string) <-chan Aircraft {
 			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 			resp, err := client.Do(req)
 			if err != nil {
+				if time.Since(lastStatusLog) > 30*time.Second {
+					log.Printf("[DUMP1090] poll error url=%s err=%v", url, err)
+					lastStatusLog = time.Now()
+				}
 				continue
 			}
 			func() {
 				defer resp.Body.Close()
 				body, err := io.ReadAll(resp.Body)
 				if err != nil {
+					if time.Since(lastStatusLog) > 30*time.Second {
+						log.Printf("[DUMP1090] poll read error url=%s err=%v", url, err)
+						lastStatusLog = time.Now()
+					}
+					return
+				}
+				if resp.StatusCode < 200 || resp.StatusCode > 299 {
+					if time.Since(lastStatusLog) > 30*time.Second {
+						log.Printf("[DUMP1090] poll bad status url=%s status=%d bytes=%d", url, resp.StatusCode, len(body))
+						lastStatusLog = time.Now()
+					}
 					return
 				}
 				var doc struct {
 					Aircraft []map[string]interface{} `json:"aircraft"`
 				}
 				if err := json.Unmarshal(body, &doc); err != nil {
+					if time.Since(lastStatusLog) > 30*time.Second {
+						log.Printf("[DUMP1090] poll json error url=%s err=%v", url, err)
+						lastStatusLog = time.Now()
+					}
 					return
 				}
 				now := time.Now()
+				sent := 0
 				for _, a := range doc.Aircraft {
 					acft := parseAircraft(a, now)
 					if acft.ICAO != "" && (acft.Latitude != 0 || acft.Longitude != 0) {
 						out <- acft
+						sent++
 					}
+				}
+
+				if time.Since(lastStatusLog) > 30*time.Second {
+					log.Printf("[DUMP1090] poll ok url=%s aircraft=%d emitted=%d", url, len(doc.Aircraft), sent)
+					lastStatusLog = time.Now()
 				}
 			}()
 		}
@@ -91,7 +119,7 @@ func parseAircraft(raw map[string]interface{}, now time.Time) Aircraft {
 		GeoAlt:       alt,
 		BaroAlt:      alt,
 		Velocity:     0,
-		Source:       "dump1090",
+		Source:       "antenna",
 		Seen:         now,
 	}
 }

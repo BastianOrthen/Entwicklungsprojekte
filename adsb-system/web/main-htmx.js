@@ -23,10 +23,15 @@
 // Global state
 let map;                      // Leaflet map instance
 let aircraft;                 // Map<icao, {polyline, marker, coords[]}>
+let aircraftOffline;          // Map<icao, ...> for offline/historical data
 let selectedAircraft = null;  // Currently selected aircraft ICAO
 let currentSortKey = null;    // Current sort column (e.g., "alt", "spd")
 let currentSortAsc = true;    // Sort direction: true = ascending (▲), false = descending (▼)
 let pathsVisible = true;      // Track visibility toggle (Paths button)
+let activeDataTab = 'online'; // 'online' | 'offline'
+// Safety limits for offline/history rendering (prevents browser freezes)
+const OFFLINE_MAX_POINTS_PER_AIRCRAFT = 1500;
+const OFFLINE_MAX_TOTAL_POINTS = 20000;
 // Follow mode: keep map centered on selected aircraft
 const FOLLOW_STORAGE_KEY = 'adsb.followSelected';
 let followSelected = false;
@@ -53,8 +58,10 @@ function updateFollowButtonUi() {
 }
 
 function followSelectedNow() {
-  if (!followSelected || !map || !aircraft || !selectedAircraft) return;
-  const entry = aircraft.get(selectedAircraft);
+  if (!followSelected || !map || !selectedAircraft) return;
+  const store = (activeDataTab === 'offline') ? aircraftOffline : aircraft;
+  if (!store) return;
+  const entry = store.get(selectedAircraft);
   if (!entry || !entry.marker) return;
   try {
     map.panTo(entry.marker.getLatLng(), { animate: true });
@@ -198,11 +205,11 @@ function initializeMapStyleControls() {
 }
 
 // Layer state: controls which data sources are visible in table + map
-// v2: only Simulator + Internet (cleanup)
-const LAYER_STORAGE_KEY = 'adsb.layers.v2';
+// v3: Online/Offline × (Simulator/Internet)
+const LAYER_STORAGE_KEY = 'adsb.layers.v3';
 let layerState = {
-  sim: true,
-  internet: true,
+  online: { sim: true, internet: true },
+  offline: { sim: true, internet: true },
 };
 
 function layerKeyForSource(source) {
@@ -210,13 +217,16 @@ function layerKeyForSource(source) {
   if (s === '' || s === 'unknown') return 'sim';
   if (s === 'sim' || s === 'simulator') return 'sim';
   if (s === 'net' || s === 'internet' || s === 'api' || s === 'online') return 'internet';
+  // Antenna / local receiver sources should be treated like "real" data
+  if (s === 'dump1090' || s === 'readsb' || s === 'antenna' || s === 'rtl' || s === 'rtlsdr') return 'internet';
   // Cleanup mode: everything else counts as Simulator
   return 'sim';
 }
 
-function isLayerEnabledForSource(source) {
+function isLayerEnabledForSource(source, mode) {
   const key = layerKeyForSource(source);
-  return layerState[key] !== false;
+  const m = (mode === 'offline') ? 'offline' : 'online';
+  return layerState[m] && layerState[m][key] !== false;
 }
 
 function loadLayerStateFromStorage() {
@@ -225,11 +235,22 @@ function loadLayerStateFromStorage() {
     if (!raw) return;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return;
-    layerState = {
-      ...layerState,
-      sim: parsed.sim !== undefined ? !!parsed.sim : layerState.sim,
-      internet: parsed.internet !== undefined ? !!parsed.internet : layerState.internet,
-    };
+
+    // Migration: older versions stored {sim, internet}
+    if (parsed.sim !== undefined || parsed.internet !== undefined) {
+      layerState.online.sim = parsed.sim !== undefined ? !!parsed.sim : layerState.online.sim;
+      layerState.online.internet = parsed.internet !== undefined ? !!parsed.internet : layerState.online.internet;
+      return;
+    }
+
+    if (parsed.online && typeof parsed.online === 'object') {
+      layerState.online.sim = parsed.online.sim !== undefined ? !!parsed.online.sim : layerState.online.sim;
+      layerState.online.internet = parsed.online.internet !== undefined ? !!parsed.online.internet : layerState.online.internet;
+    }
+    if (parsed.offline && typeof parsed.offline === 'object') {
+      layerState.offline.sim = parsed.offline.sim !== undefined ? !!parsed.offline.sim : layerState.offline.sim;
+      layerState.offline.internet = parsed.offline.internet !== undefined ? !!parsed.offline.internet : layerState.offline.internet;
+    }
   } catch (_) {}
 }
 
@@ -241,42 +262,55 @@ function saveLayerStateToStorage() {
 
 function applyLayerVisibilityToMap() {
   if (!map || !aircraft) return;
-  for (const entry of aircraft.values()) {
-    const visible = isLayerEnabledForSource(entry.source);
 
-    if (entry.marker) {
-      const has = map.hasLayer(entry.marker);
-      if (visible && !has) entry.marker.addTo(map);
-      if (!visible && has) map.removeLayer(entry.marker);
-    }
+  const applyForStore = (store, mode) => {
+    if (!store) return;
+    for (const entry of store.values()) {
+      const visible = isLayerEnabledForSource(entry.source, mode);
 
-    if (entry.polylineGroup) {
-      const shouldShow = visible && pathsVisible;
-      const has = map.hasLayer(entry.polylineGroup);
-      if (shouldShow && !has) entry.polylineGroup.addTo(map);
-      if (!shouldShow && has) map.removeLayer(entry.polylineGroup);
+      if (entry.marker) {
+        const has = map.hasLayer(entry.marker);
+        if (visible && !has) entry.marker.addTo(map);
+        if (!visible && has) map.removeLayer(entry.marker);
+      }
+
+      if (entry.polylineGroup) {
+        const shouldShow = visible && pathsVisible;
+        const has = map.hasLayer(entry.polylineGroup);
+        if (shouldShow && !has) entry.polylineGroup.addTo(map);
+        if (!shouldShow && has) map.removeLayer(entry.polylineGroup);
+      }
     }
-  }
+  };
+
+  applyForStore(aircraft, 'online');
+  applyForStore(aircraftOffline, 'offline');
 }
 
 function initializeLayerControls() {
   loadLayerStateFromStorage();
 
-  const simCb = document.getElementById('adsb-layer-sim');
-  const netCb = document.getElementById('adsb-layer-internet');
+  const onlineSim = document.getElementById('adsb-layer-online-sim');
+  const onlineNet = document.getElementById('adsb-layer-online-internet');
+  const offlineSim = document.getElementById('adsb-layer-offline-sim');
+  const offlineNet = document.getElementById('adsb-layer-offline-internet');
 
-  if (simCb) simCb.checked = !!layerState.sim;
-  if (netCb) netCb.checked = !!layerState.internet;
+  if (onlineSim) onlineSim.checked = !!layerState.online.sim;
+  if (onlineNet) onlineNet.checked = !!layerState.online.internet;
+  if (offlineSim) offlineSim.checked = !!layerState.offline.sim;
+  if (offlineNet) offlineNet.checked = !!layerState.offline.internet;
 
   function onChange() {
-    layerState.sim = !!simCb?.checked;
-    layerState.internet = !!netCb?.checked;
+    layerState.online.sim = !!onlineSim?.checked;
+    layerState.online.internet = !!onlineNet?.checked;
+    layerState.offline.sim = !!offlineSim?.checked;
+    layerState.offline.internet = !!offlineNet?.checked;
     saveLayerStateToStorage();
     applyTableFilter();
     applyLayerVisibilityToMap();
   }
 
-  [simCb, netCb].forEach(cb => {
+  [onlineSim, onlineNet, offlineSim, offlineNet].forEach(cb => {
     if (!cb) return;
     cb.addEventListener('change', onChange);
   });
@@ -288,19 +322,70 @@ function initializeLayerControls() {
 
 function applyTableFilter() {
   const input = document.getElementById('adsb-table-search');
-  const tbody = document.getElementById('adsb-debug-body');
+  const tbody = activeDataTab === 'offline'
+    ? document.getElementById('adsb-offline-body')
+    : document.getElementById('adsb-debug-body');
   if (!tbody) return;
 
   const query = (input?.value || '').toString().trim().toLowerCase();
   const rows = tbody.querySelectorAll('tr');
+  const mode = activeDataTab;
 
   rows.forEach(row => {
     const haystack = (row.textContent || '').toString().toLowerCase();
     const source = row.dataset.source || 'sim';
-    const layerOk = isLayerEnabledForSource(source);
+    const layerOk = isLayerEnabledForSource(source, mode);
     const match = (query === '' || haystack.includes(query)) && layerOk;
     row.style.display = match ? '' : 'none';
   });
+}
+
+function setActiveTab(mode) {
+  activeDataTab = (mode === 'offline') ? 'offline' : 'online';
+
+  const onlineBtn = document.getElementById('adsb-tab-online');
+  const offlineBtn = document.getElementById('adsb-tab-offline');
+  const onlinePanel = document.getElementById('adsb-online-panel');
+  const offlinePanel = document.getElementById('adsb-offline-panel');
+
+  if (onlinePanel) onlinePanel.style.display = (activeDataTab === 'online') ? '' : 'none';
+  if (offlinePanel) offlinePanel.style.display = (activeDataTab === 'offline') ? '' : 'none';
+
+  if (onlineBtn && offlineBtn) {
+    if (activeDataTab === 'online') {
+      onlineBtn.style.background = '#1e7ec8';
+      onlineBtn.style.color = '#fff';
+      offlineBtn.style.background = '#0f1019';
+      offlineBtn.style.color = '#b7d9ff';
+    } else {
+      offlineBtn.style.background = '#1e7ec8';
+      offlineBtn.style.color = '#fff';
+      onlineBtn.style.background = '#0f1019';
+      onlineBtn.style.color = '#b7d9ff';
+    }
+  }
+
+  applyTableFilter();
+}
+
+function initializeTabs() {
+  const onlineBtn = document.getElementById('adsb-tab-online');
+  const offlineBtn = document.getElementById('adsb-tab-offline');
+
+  if (onlineBtn) {
+    onlineBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      setActiveTab('online');
+    });
+  }
+  if (offlineBtn) {
+    offlineBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      setActiveTab('offline');
+    });
+  }
+
+  setActiveTab(activeDataTab);
 }
 
 function initializeTableSearch() {
@@ -347,12 +432,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Initialize aircraft tracking store: ICAO -> {polyline, marker, coords[]}
   aircraft = new Map();
+  aircraftOffline = new Map();
   
   // Initialize table sorting UI
   initializeTableSorting();
 
   // Initialize client-side table search
   initializeTableSearch();
+
+  // Initialize tabs (Online/Offline)
+  initializeTabs();
 
   // Initialize layer toggles (filter table + map)
   initializeLayerControls();
@@ -373,17 +462,22 @@ function setPathsVisible(visible) {
   pathsVisible = !!visible;
   if (!map || !aircraft) return;
 
-  for (const entry of aircraft.values()) {
-    if (!entry.polylineGroup) continue;
-
-    const layerVisible = isLayerEnabledForSource(entry.source);
-    const shouldShow = pathsVisible && layerVisible;
-    if (shouldShow) {
-      if (!map.hasLayer(entry.polylineGroup)) entry.polylineGroup.addTo(map);
-    } else {
-      if (map.hasLayer(entry.polylineGroup)) map.removeLayer(entry.polylineGroup);
+  const applyForStore = (store, mode) => {
+    if (!store) return;
+    for (const entry of store.values()) {
+      if (!entry.polylineGroup) continue;
+      const layerVisible = isLayerEnabledForSource(entry.source, mode);
+      const shouldShow = pathsVisible && layerVisible;
+      if (shouldShow) {
+        if (!map.hasLayer(entry.polylineGroup)) entry.polylineGroup.addTo(map);
+      } else {
+        if (map.hasLayer(entry.polylineGroup)) map.removeLayer(entry.polylineGroup);
+      }
     }
-  }
+  };
+
+  applyForStore(aircraft, 'online');
+  applyForStore(aircraftOffline, 'offline');
 }
 
 function togglePathsVisible() {
@@ -393,16 +487,25 @@ function togglePathsVisible() {
 function clearTracks() {
   if (!map || !aircraft) return;
 
-  for (const entry of aircraft.values()) {
-    entry.coords = [];
-
-    if (entry.polylineGroup) {
-      entry.polylineGroup.clearLayers();
-      if (map.hasLayer(entry.polylineGroup)) map.removeLayer(entry.polylineGroup);
-      entry.polylineGroup = null;
+  const clearForStore = (store) => {
+    if (!store) return;
+    for (const entry of store.values()) {
+      entry.coords = [];
+      if (entry.polylineGroup) {
+        entry.polylineGroup.clearLayers();
+        if (map.hasLayer(entry.polylineGroup)) map.removeLayer(entry.polylineGroup);
+        entry.polylineGroup = null;
+      }
+      if (entry.marker && map.hasLayer(entry.marker)) {
+        map.removeLayer(entry.marker);
+      }
+      entry.marker = null;
+      entry.polyline = null;
     }
-    entry.polyline = null;
-  }
+  };
+
+  clearForStore(aircraft);
+  clearForStore(aircraftOffline);
 }
 
 /**
@@ -566,8 +669,10 @@ function updateAircraft(data) {
   const id = data.icao;
   const lat = data.lat;
   const lon = data.lon;
-  const alt = data.alt || 0;
-  const speed = data.speed || 0;
+  const altRaw = data.alt;
+  const speedRaw = data.speed;
+  const altValue = (typeof altRaw === 'number' && Number.isFinite(altRaw)) ? altRaw : 0;
+  const speedValue = (typeof speedRaw === 'number' && Number.isFinite(speedRaw)) ? speedRaw : 0;
   const source = data.source || 'sim';
   const sourceKey = layerKeyForSource(source);
   const isSimSource = sourceKey === 'sim';
@@ -587,15 +692,15 @@ function updateAircraft(data) {
 
   const entry = aircraft.get(id);
   entry.source = source;
-  const layerVisible = isLayerEnabledForSource(source);
+  const layerVisible = isLayerEnabledForSource(source, 'online');
 
   entry.last = {
     icao: id,
     callsign: data.callsign,
     lat,
     lon,
-    alt,
-    speed,
+    alt: (typeof altRaw === 'number' && Number.isFinite(altRaw)) ? altRaw : null,
+    speed: (typeof speedRaw === 'number' && Number.isFinite(speedRaw)) ? speedRaw : null,
     heading: data.heading || 0,
     track: data.track,
     squawk: data.squawk,
@@ -629,7 +734,7 @@ function updateAircraft(data) {
   }
 
   // Add to track history with metadata
-  entry.coords.push({ lat, lon, alt, speed, heading: data.heading || 0 });
+  entry.coords.push({ lat, lon, alt: altValue, speed: speedValue, heading: data.heading || 0 });
   while (entry.coords.length > maxTrackPoints) {
     entry.coords.shift(); // Keep history limited to maxTrackPoints
   }
@@ -676,7 +781,7 @@ function updateAircraft(data) {
 
   // Create or update marker
   const popup = buildAircraftPopupHtml(entry);
-  const newColor = colorByAltitude(alt);
+  const newColor = colorByAltitude(altValue);
   const heading = data.heading || 0;
   const rotation = `transform: rotate(${heading}deg);`;
   const ringStroke = isSimSource ? 'rgba(197,72,63,0.95)' : 'rgba(30,126,200,0.9)';
@@ -692,7 +797,7 @@ function updateAircraft(data) {
     
     // Add click handler to marker to select in table
     entry.marker.on('click', () => {
-      selectAircraftByIcao(id);
+      selectAircraftByIcao(id, 'online');
     });
 
     if (layerVisible) {
@@ -708,8 +813,123 @@ function updateAircraft(data) {
     if (layerVisible && !has) entry.marker.addTo(map);
     if (!layerVisible && has) map.removeLayer(entry.marker);
   }
-  entry.alt = alt;
-  entry.speed = speed;
+  entry.alt = altValue;
+  entry.speed = speedValue;
+}
+
+// Update aircraft for OFFLINE store (historical data)
+function updateAircraftOffline(data) {
+  const id = data.icao;
+  const lat = data.lat;
+  const lon = data.lon;
+  const altRaw = data.alt;
+  const speedRaw = data.speed;
+  const altValue = (typeof altRaw === 'number' && Number.isFinite(altRaw)) ? altRaw : 0;
+  const speedValue = (typeof speedRaw === 'number' && Number.isFinite(speedRaw)) ? speedRaw : 0;
+  const source = data.source || 'sim';
+  const sourceKey = layerKeyForSource(source);
+  const isSimSource = sourceKey === 'sim';
+
+  if (!aircraftOffline.has(id)) {
+    aircraftOffline.set(id, {
+      coords: [],
+      marker: null,
+      polyline: null,
+      polylineGroup: null,
+      last: null,
+      alt: 0,
+      speed: 0,
+      source: source
+    });
+  }
+
+  const entry = aircraftOffline.get(id);
+  entry.source = source;
+  const layerVisible = isLayerEnabledForSource(source, 'offline');
+
+  entry.last = {
+    icao: id,
+    callsign: data.callsign,
+    lat,
+    lon,
+    alt: (typeof altRaw === 'number' && Number.isFinite(altRaw)) ? altRaw : null,
+    speed: (typeof speedRaw === 'number' && Number.isFinite(speedRaw)) ? speedRaw : null,
+    heading: data.heading || 0,
+    track: data.track,
+    squawk: data.squawk,
+    rssi: data.rssi,
+    verticalRate: data.verticalRate,
+    messages: data.messages,
+    onGround: data.onGround,
+    source,
+    seen: data.seen,
+    origin: data.origin,
+    geoAltFt: data.geoAltFt,
+    baroAltFt: data.baroAltFt,
+    velocityMs: data.velocityMs,
+  };
+
+  // Track history
+  const heading = data.heading || 0;
+  entry.coords.push({ lat, lon, alt: altValue, speed: speedValue, heading });
+  while (entry.coords.length > maxTrackPoints) entry.coords.shift();
+
+  // Build or update colored polyline segments
+  if (!entry.polylineGroup) {
+    entry.polylineGroup = L.featureGroup();
+  }
+  entry.polylineGroup.clearLayers();
+  for (let i = 0; i < entry.coords.length - 1; i++) {
+    const c1 = entry.coords[i];
+    const c2 = entry.coords[i + 1];
+    const segColor = colorByAltitude(c1.alt);
+    const segment = L.polyline([[c1.lat, c1.lon], [c2.lat, c2.lon]], {
+      color: segColor,
+      weight: 3,
+      opacity: 0.85,
+      dashArray: isSimSource ? '6 6' : undefined
+    });
+    entry.polylineGroup.addLayer(segment);
+  }
+
+  if (pathsVisible && layerVisible) {
+    if (!map.hasLayer(entry.polylineGroup)) entry.polylineGroup.addTo(map);
+  } else {
+    if (map.hasLayer(entry.polylineGroup)) map.removeLayer(entry.polylineGroup);
+  }
+
+  // Marker
+  const popup = buildAircraftPopupHtml(entry);
+  const newColor = colorByAltitude(altValue);
+  const rotation = `transform: rotate(${heading}deg);`;
+  const ringStroke = isSimSource ? 'rgba(197,72,63,0.95)' : 'rgba(30,126,200,0.9)';
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24' class='plane-svg' style='${rotation}'>` +
+    `<circle cx='12' cy='12' r='11' fill='none' stroke='${ringStroke}' stroke-width='1.8' />` +
+    `<polygon points='12,2 4,20 12,15 20,20' fill='${newColor}' stroke='rgba(255,255,255,0.45)' stroke-width='1'/>` +
+    `</svg>`;
+  const icon = L.divIcon({ className: 'plane-divicon', html: svg, iconSize: [28, 28] });
+
+  if (!entry.marker) {
+    entry.marker = L.marker([lat, lon], { icon: icon });
+    entry.marker.bindPopup(popup);
+    entry.marker.on('click', () => {
+      selectAircraftByIcao(id, 'offline');
+    });
+    if (layerVisible) {
+      entry.marker.addTo(map);
+    }
+  } else {
+    entry.marker.setLatLng([lat, lon]).setIcon(icon).getPopup().setContent(popup);
+  }
+
+  if (entry.marker) {
+    const has = map.hasLayer(entry.marker);
+    if (layerVisible && !has) entry.marker.addTo(map);
+    if (!layerVisible && has) map.removeLayer(entry.marker);
+  }
+
+  entry.alt = altValue;
+  entry.speed = speedValue;
 }
 
 function formatMaybeNumber(value, suffix) {
@@ -781,26 +1001,51 @@ function buildAircraftPopupHtml(entry) {
 }
 
 // Select aircraft by ICAO and highlight in table and map
-function selectAircraftByIcao(icao) {
+function selectAircraftByIcao(icao, mode) {
   selectedAircraft = icao;
-  
-  // Highlight row in table
-  const tbody = document.getElementById('adsb-debug-body');
+
+  const preferredMode = (mode === 'offline' || mode === 'online') ? mode : activeDataTab;
+  const tbody = preferredMode === 'offline'
+    ? document.getElementById('adsb-offline-body')
+    : document.getElementById('adsb-debug-body');
+
+  // Highlight row in active table
   if (tbody) {
-    tbody.querySelectorAll('tr').forEach(row => {
-      row.classList.remove('selected');
-      if (row.id === `aircraft-${icao}`) {
-        row.classList.add('selected');
-        row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    tbody.querySelectorAll('tr').forEach(row => row.classList.remove('selected'));
+
+    let targetRow = null;
+    if (preferredMode !== 'offline') {
+      targetRow = document.getElementById(`aircraft-${icao}`);
+    }
+    if (!targetRow) {
+      for (const row of tbody.querySelectorAll('tr')) {
+        const cell = row.querySelector('td:first-child');
+        const rowIcao = (cell?.textContent || '').trim();
+        if (rowIcao === icao) {
+          targetRow = row;
+          break;
+        }
       }
-    });
+    }
+    if (targetRow) {
+      targetRow.classList.add('selected');
+      targetRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
   }
-  
-  // Highlight marker on map and zoom
-  if (aircraft.has(icao) && aircraft.get(icao).marker) {
-    const entry = aircraft.get(icao);
-    entry.marker.openPopup();
-    map.setView(entry.marker.getLatLng(), 10, { animate: true });
+
+  // Highlight marker on map and zoom (prefer the store matching mode)
+  const stores = preferredMode === 'offline'
+    ? [aircraftOffline, aircraft]
+    : [aircraft, aircraftOffline];
+
+  for (const store of stores) {
+    if (!store || !store.has(icao)) continue;
+    const entry = store.get(icao);
+    if (entry && entry.marker) {
+      entry.marker.openPopup();
+      map.setView(entry.marker.getLatLng(), 10, { animate: true });
+      break;
+    }
   }
 }
 
@@ -1006,6 +1251,390 @@ function triggerHTMXAfterSettle() {
   // Keep current layer visibility applied
   applyLayerVisibilityToMap();
 }
+
+// --- Offline query (Postgres) ---
+
+function getOfflineRequireFieldsSelection() {
+  const fields = [];
+  const addIfChecked = (id, key) => {
+    const el = document.getElementById(id);
+    if (el && el.checked) fields.push(key);
+  };
+  addIfChecked('adsb-offline-require-callsign', 'callsign');
+  addIfChecked('adsb-offline-require-squawk', 'squawk');
+  addIfChecked('adsb-offline-require-origin', 'origin_country');
+  return fields;
+}
+
+function toRFC3339FromDatetimeLocal(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString();
+}
+
+async function runHistoryQueryFromUI() {
+  // Backwards-compat: old History UI removed.
+}
+
+function escapeHtml(s) {
+  return (s || '').toString()
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function clearOfflineResults() {
+  const tbody = document.getElementById('adsb-offline-body');
+  if (tbody) tbody.innerHTML = '';
+
+  if (map && aircraftOffline) {
+    for (const entry of aircraftOffline.values()) {
+      if (entry.marker && map.hasLayer(entry.marker)) map.removeLayer(entry.marker);
+      if (entry.polylineGroup && map.hasLayer(entry.polylineGroup)) map.removeLayer(entry.polylineGroup);
+    }
+  }
+  if (aircraftOffline) aircraftOffline.clear();
+}
+
+function coerceNumber(v) {
+  if (v === undefined || v === null) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function renderOfflineFromAggregates(aggMap) {
+  if (!map || !aircraftOffline) return;
+
+  // Build map layers efficiently: one pass per aircraft
+  for (const [icao, agg] of aggMap.entries()) {
+    if (!agg || !agg.last || !Array.isArray(agg.coords) || agg.coords.length === 0) continue;
+
+    const last = agg.last;
+    const source = last.source || 'simulator';
+    const sourceKey = layerKeyForSource(source);
+    const isSimSource = sourceKey === 'sim';
+    const layerVisible = isLayerEnabledForSource(source, 'offline');
+
+    const entry = {
+      coords: agg.coords,
+      marker: null,
+      polyline: null,
+      polylineGroup: null,
+      last: {
+        icao,
+        callsign: last.callsign,
+        lat: last.lat,
+        lon: last.lon,
+        alt: last.alt,
+        speed: last.speed,
+        heading: last.heading,
+        track: last.track,
+        squawk: last.squawk,
+        rssi: last.rssi,
+        verticalRate: last.verticalRate,
+        messages: last.messages,
+        onGround: last.onGround,
+        source,
+        seen: last.seen,
+        origin: last.origin,
+        geoAltFt: last.geoAltFt,
+        baroAltFt: last.baroAltFt,
+        velocityMs: last.velocityMs,
+      },
+      alt: coerceNumber(last.alt) ?? 0,
+      speed: coerceNumber(last.speed) ?? 0,
+      source,
+    };
+
+    // Track polyline segments (build once)
+    entry.polylineGroup = L.featureGroup();
+    for (let i = 0; i < entry.coords.length - 1; i++) {
+      const c1 = entry.coords[i];
+      const c2 = entry.coords[i + 1];
+      const segColor = colorByAltitude(c1.alt || 0);
+      const segment = L.polyline([[c1.lat, c1.lon], [c2.lat, c2.lon]], {
+        color: segColor,
+        weight: 3,
+        opacity: 0.85,
+        dashArray: isSimSource ? '6 6' : undefined
+      });
+      entry.polylineGroup.addLayer(segment);
+    }
+    if (pathsVisible && layerVisible) {
+      entry.polylineGroup.addTo(map);
+    }
+
+    // Marker
+    const altValue = coerceNumber(last.alt) ?? 0;
+    const newColor = colorByAltitude(altValue);
+    const heading = coerceNumber(last.heading) ?? 0;
+    const rotation = `transform: rotate(${heading}deg);`;
+    const ringStroke = isSimSource ? 'rgba(197,72,63,0.95)' : 'rgba(30,126,200,0.9)';
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24' class='plane-svg' style='${rotation}'>` +
+      `<circle cx='12' cy='12' r='11' fill='none' stroke='${ringStroke}' stroke-width='1.8' />` +
+      `<polygon points='12,2 4,20 12,15 20,20' fill='${newColor}' stroke='rgba(255,255,255,0.45)' stroke-width='1'/>` +
+      `</svg>`;
+    const icon = L.divIcon({ className: 'plane-divicon', html: svg, iconSize: [28, 28] });
+
+    entry.marker = L.marker([last.lat, last.lon], { icon: icon });
+    entry.marker.bindPopup(buildAircraftPopupHtml(entry));
+    entry.marker.on('click', () => selectAircraftByIcao(icao, 'offline'));
+    if (layerVisible) {
+      entry.marker.addTo(map);
+    }
+
+    aircraftOffline.set(icao, entry);
+  }
+}
+
+function buildOfflineTableHtml(rows) {
+  const fmtNum = (v) => {
+    if (v === undefined || v === null) return '';
+    if (typeof v === 'number' && Number.isNaN(v)) return '';
+    return v.toString();
+  };
+  const fmtTxt = (v) => {
+    if (v === undefined || v === null) return '';
+    const s = v.toString().trim();
+    return s;
+  };
+  const fmtSeen = (v) => {
+    const s = fmtTxt(v);
+    if (!s) return '';
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return s;
+    return d.toLocaleString();
+  };
+
+  return rows.map((r) => {
+    const icao = escapeHtml(fmtTxt(r.icao));
+    const callsign = escapeHtml(fmtTxt(r.callsign));
+    const alt = escapeHtml(fmtNum(r.alt));
+    const speed = escapeHtml(fmtNum(r.speed));
+    const heading = escapeHtml(fmtNum(r.heading));
+    const squawk = escapeHtml(fmtTxt(r.squawk));
+    const rssi = escapeHtml(fmtNum(r.rssi));
+    const seen = escapeHtml(fmtSeen(r.seen));
+    const lat = (typeof r.lat === 'number' && Number.isFinite(r.lat)) ? r.lat : '';
+    const lon = (typeof r.lon === 'number' && Number.isFinite(r.lon)) ? r.lon : '';
+    const source = escapeHtml(fmtTxt(r.source || ''));
+    return `
+      <tr data-source="${source}" data-lat="${lat}" data-lon="${lon}">
+        <td style="text-align:left;padding:4px 6px;">${icao}</td>
+        <td style="text-align:left;padding:4px 6px;">${callsign}</td>
+        <td style="text-align:right;padding:4px 6px;">${alt}</td>
+        <td style="text-align:right;padding:4px 6px;">${speed}</td>
+        <td style="text-align:right;padding:4px 6px;">${heading}</td>
+        <td style="text-align:right;padding:4px 6px;">${squawk}</td>
+        <td style="text-align:right;padding:4px 6px;">${rssi}</td>
+        <td style="text-align:left;padding:4px 6px;">${seen}</td>
+      </tr>`;
+  }).join('');
+}
+
+async function runOfflineQueryFromUI() {
+  const status = document.getElementById('adsb-offline-status');
+  const setStatus = (s) => { if (status) status.textContent = s; };
+
+  const sourceEl = document.getElementById('adsb-offline-source');
+  const fromEl = document.getElementById('adsb-offline-from');
+  const toEl = document.getElementById('adsb-offline-to');
+
+  const source = sourceEl ? sourceEl.value : '';
+  const from = toRFC3339FromDatetimeLocal(fromEl && fromEl.value);
+  const to = toRFC3339FromDatetimeLocal(toEl && toEl.value);
+
+  if (!from || !to) {
+    setStatus('Bitte Zeitraum wählen');
+    return;
+  }
+
+  const requireFields = getOfflineRequireFieldsSelection();
+  const params = new URLSearchParams();
+  params.set('source', source);
+  params.set('from', from);
+  params.set('to', to);
+  if (requireFields.length > 0) params.set('fields', requireFields.join(','));
+
+  const fromDate = new Date(from);
+  const toDate = new Date(to);
+  const windowMs = (Number.isFinite(fromDate.getTime()) && Number.isFinite(toDate.getTime()))
+    ? (toDate.getTime() - fromDate.getTime())
+    : Number.POSITIVE_INFINITY;
+
+  // For large windows, avoid huge payloads: fetch only the latest report per ICAO.
+  // For small windows, fetch full history to draw tracks.
+  const wantFullHistory = windowMs <= 60 * 60 * 1000; // <= 1 hour
+
+  if (wantFullHistory) {
+    params.set('limit', '20000');
+  } else {
+    params.set('limit', '5000');
+  }
+
+  const endpoint = wantFullHistory ? '/api/history' : '/api/history/latest';
+  const url = `http://localhost:8080${endpoint}?${params.toString()}`;
+  setStatus('Lade...');
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      const text = await res.text();
+      console.error('[HISTORY] Error:', res.status, text);
+      setStatus(`Fehler (${res.status})`);
+      return;
+    }
+
+    const rows = await res.json();
+    if (!Array.isArray(rows)) {
+      setStatus('Unerwartete Antwort');
+      return;
+    }
+
+    clearOfflineResults();
+
+    if (wantFullHistory) {
+      // Aggregate per aircraft (table shows latest per ICAO; map draws track per ICAO)
+      const agg = new Map();
+      let totalPoints = 0;
+      let reportCount = 0;
+
+      for (const r of rows) {
+        if (!r || typeof r !== 'object') continue;
+        const icao = (r.icao || '').toString().trim();
+        const lat = coerceNumber(r.lat);
+        const lon = coerceNumber(r.lon);
+        if (!icao || lat === null || lon === null) {
+          reportCount++;
+          continue;
+        }
+
+        let a = agg.get(icao);
+        if (!a) {
+          a = { coords: [], last: null };
+          agg.set(icao, a);
+        }
+
+        if (totalPoints < OFFLINE_MAX_TOTAL_POINTS) {
+          a.coords.push({ lat, lon, alt: coerceNumber(r.alt) ?? 0 });
+          totalPoints++;
+          if (a.coords.length > OFFLINE_MAX_POINTS_PER_AIRCRAFT) {
+            a.coords = a.coords.slice(a.coords.length - OFFLINE_MAX_POINTS_PER_AIRCRAFT);
+          }
+        }
+
+        a.last = {
+          icao,
+          lat,
+          lon,
+          seen: r.seen,
+          source: r.source,
+          alt: r.alt,
+          speed: r.speed,
+          heading: r.heading,
+          callsign: r.callsign,
+          squawk: r.squawk,
+          rssi: r.rssi,
+          verticalRate: r.verticalRate,
+          messages: r.messages,
+          onGround: r.onGround,
+          origin: r.origin,
+          geoAltFt: r.geoAltFt,
+          baroAltFt: r.baroAltFt,
+          velocityMs: r.velocityMs,
+          track: r.track,
+        };
+
+        reportCount++;
+      }
+
+      renderOfflineFromAggregates(agg);
+      applyLayerVisibilityToMap();
+
+      const latestRows = [];
+      for (const a of agg.values()) {
+        if (a && a.last) latestRows.push(a.last);
+      }
+
+      const tbody = document.getElementById('adsb-offline-body');
+      if (tbody) {
+        tbody.innerHTML = buildOfflineTableHtml(latestRows);
+        tbody.removeEventListener('click', handleTableBodyClick);
+        tbody.addEventListener('click', handleTableBodyClick);
+        tbody.removeEventListener('dblclick', handleTableBodyDblClick);
+        tbody.addEventListener('dblclick', handleTableBodyDblClick);
+      }
+
+      applyTableFilter();
+      setStatus(`${latestRows.length} Flugzeuge • ${reportCount} Meldungen`);
+      return;
+    }
+
+    // Latest-per-ICAO mode
+    let rowCount = 0;
+    for (const r of rows) {
+      if (!r || typeof r !== 'object') continue;
+      const icao = (r.icao || '').toString().trim();
+      const lat = coerceNumber(r.lat);
+      const lon = coerceNumber(r.lon);
+      if (!icao || lat === null || lon === null) continue;
+
+      updateAircraftOffline({
+        icao,
+        lat,
+        lon,
+        alt: coerceNumber(r.alt) ?? 0,
+        speed: coerceNumber(r.speed),
+        heading: coerceNumber(r.heading),
+        callsign: r.callsign,
+        squawk: r.squawk,
+        rssi: coerceNumber(r.rssi),
+        verticalRate: coerceNumber(r.verticalRate),
+        messages: coerceNumber(r.messages),
+        onGround: r.onGround,
+        origin: r.origin,
+        geoAltFt: coerceNumber(r.geoAltFt),
+        baroAltFt: coerceNumber(r.baroAltFt),
+        velocityMs: coerceNumber(r.velocityMs),
+        source: r.source,
+        seen: r.seen,
+      });
+      rowCount++;
+    }
+    applyLayerVisibilityToMap();
+
+    const tbody = document.getElementById('adsb-offline-body');
+    if (tbody) {
+      tbody.innerHTML = buildOfflineTableHtml(rows);
+      tbody.removeEventListener('click', handleTableBodyClick);
+      tbody.addEventListener('click', handleTableBodyClick);
+      tbody.removeEventListener('dblclick', handleTableBodyDblClick);
+      tbody.addEventListener('dblclick', handleTableBodyDblClick);
+    }
+
+    applyTableFilter();
+
+    setStatus(`${rowCount} Flugzeuge (Latest je ICAO)`);
+  } catch (e) {
+    console.error('[HISTORY] Exception:', e);
+    setStatus('Fehler');
+  }
+}
+
+// Wire up Offline UI
+window.addEventListener('load', () => {
+  const btn = document.getElementById('adsb-offline-run');
+  if (!btn) return;
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    setActiveTab('offline');
+    runOfflineQueryFromUI();
+  });
+});
 
 /**
  * Update sort column indicator UI (▲/▼ symbols).

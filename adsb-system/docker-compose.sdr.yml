@@ -1,0 +1,37 @@
+services:
+  readsb:
+    image: ghcr.io/wiedehopf/readsb:latest
+    restart: unless-stopped
+    networks:
+      - adsbnet
+    # NOTE (Windows): USB passthrough into Linux containers typically needs WSL2 + usbipd.
+    privileged: true
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    volumes:
+      - readsb_run:/run/readsb
+    command:
+      - --device-type=rtlsdr
+      - --gain=49.6
+      - --net
+      - --write-json=/run/readsb
+      - --write-json-every=1
+
+  # Serve the JSON files over HTTP inside the compose network.
+  # Our server's dump1090 poller can consume this directly.
+  readsb-http:
+    image: nginx:alpine
+    restart: unless-stopped
+    networks:
+      - adsbnet
+    volumes:
+      - readsb_run:/usr/share/nginx/html:ro
+
+  adsb-server:
+    command:
+      - /app/adsb-server
+      - -dump
+      - http://readsb-http/aircraft.json
+
+volumes:
+  readsb_run:

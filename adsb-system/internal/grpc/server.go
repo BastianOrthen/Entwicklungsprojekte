@@ -6,6 +6,7 @@ package grpc
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -14,11 +15,13 @@ import (
 	"net"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/basti/adsb-system/internal/adsb"
+	dbpkg "github.com/basti/adsb-system/internal/db"
 )
 
 // Broadcaster manages real-time distribution of aircraft updates to multiple subscribers.
@@ -28,6 +31,7 @@ type Broadcaster struct {
 	mu       sync.Mutex
 	clients  map[chan adsb.Aircraft]struct{}
 	aircraft map[string]adsb.Aircraft // Current aircraft state for HTMX queries
+	db       *sql.DB
 }
 
 // NewBroadcaster creates a new broadcaster instance.
@@ -36,6 +40,14 @@ func NewBroadcaster() *Broadcaster {
 		clients:  make(map[chan adsb.Aircraft]struct{}),
 		aircraft: make(map[string]adsb.Aircraft),
 	}
+}
+
+// SetDB attaches a database connection used for persistence.
+// Safe to call before or after StartHTTP.
+func (b *Broadcaster) SetDB(db *sql.DB) {
+	b.mu.Lock()
+	b.db = db
+	b.mu.Unlock()
 }
 
 // Subscribe returns a channel that receives aircraft updates until ctx is done.
@@ -85,8 +97,123 @@ func (b *Broadcaster) StartHTTP(addr string) error {
 	// HTMX endpoints
 	mux.HandleFunc("/api/aircraft", b.handleAircraftJSON)
 	mux.HandleFunc("/api/aircraft-rows", b.handleAircraftRows)
+	mux.HandleFunc("/api/history", b.handleHistoryJSON)
+	mux.HandleFunc("/api/history/latest", b.handleHistoryLatestJSON)
 
 	return b.serveHTTP(addr, mux)
+}
+
+// handleHistoryLatestJSON returns the latest ADS-B report per ICAO from Postgres as JSON.
+// This is designed to keep payloads small for large time windows.
+// Query params:
+//   - source: antenna|simulator|internet
+//   - from: RFC3339
+//   - to: RFC3339
+//   - fields: comma-separated; interpreted as filter criteria (field must be present).
+//     Examples: callsign,squawk,origin_country
+//   - limit: optional cap on number of aircraft returned
+func (b *Broadcaster) handleHistoryLatestJSON(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	b.mu.Lock()
+	db := b.db
+	b.mu.Unlock()
+	if db == nil {
+		http.Error(w, `{"error":"postgres not configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	fromStr := strings.TrimSpace(r.URL.Query().Get("from"))
+	toStr := strings.TrimSpace(r.URL.Query().Get("to"))
+	if fromStr == "" || toStr == "" {
+		http.Error(w, `{"error":"from and to are required (RFC3339)"}`, http.StatusBadRequest)
+		return
+	}
+	from, err := time.Parse(time.RFC3339, fromStr)
+	if err != nil {
+		http.Error(w, `{"error":"invalid from (RFC3339)"}`, http.StatusBadRequest)
+		return
+	}
+	to, err := time.Parse(time.RFC3339, toStr)
+	if err != nil {
+		http.Error(w, `{"error":"invalid to (RFC3339)"}`, http.StatusBadRequest)
+		return
+	}
+	if to.Before(from) {
+		http.Error(w, `{"error":"to must be after from"}`, http.StatusBadRequest)
+		return
+	}
+
+	source := strings.TrimSpace(r.URL.Query().Get("source"))
+	if source != "" {
+		source = dbpkg.CanonicalSource(source)
+	}
+
+	fieldsStr := strings.TrimSpace(r.URL.Query().Get("fields"))
+	var requireFields []string
+	if fieldsStr != "" {
+		for _, f := range strings.Split(fieldsStr, ",") {
+			k := strings.TrimSpace(f)
+			if k != "" {
+				requireFields = append(requireFields, k)
+			}
+		}
+	}
+
+	qctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	limit := 5000
+	if limStr := strings.TrimSpace(r.URL.Query().Get("limit")); limStr != "" {
+		if n, err := strconv.Atoi(limStr); err == nil {
+			limit = n
+		}
+	}
+	rows, err := dbpkg.QueryLatestAircraftReports(qctx, db, dbpkg.HistoryQuery{Source: source, From: from, To: to, Limit: limit, RequireFields: requireFields})
+	cancel()
+	if err != nil {
+		log.Printf("history latest query: %v", err)
+		http.Error(w, `{"error":"query failed"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// Always return all DB fields for offline UI.
+	resp := make([]map[string]any, 0, len(rows))
+	for _, a := range rows {
+		m := map[string]any{
+			"icao":         a.ICAO,
+			"lat":          a.Latitude,
+			"lon":          a.Longitude,
+			"alt":          a.Altitude,
+			"speed":        a.Speed,
+			"heading":      a.Heading,
+			"callsign":     a.Callsign,
+			"squawk":       a.Squawk,
+			"rssi":         a.RSSI,
+			"verticalRate": a.VerticalRate,
+			"messages":     a.Messages,
+			"onGround":     a.OnGround,
+			"source":       a.Source,
+			"origin":       a.Origin,
+			"geoAltFt":     a.GeoAlt,
+			"baroAltFt":    a.BaroAlt,
+			"velocityMs":   a.Velocity,
+			"seen":         a.Seen.UTC().Format(time.RFC3339),
+		}
+		resp = append(resp, m)
+	}
+
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // sseWriter wraps an http.ResponseWriter and formats writes as SSE data lines.
@@ -148,9 +275,138 @@ func (b *Broadcaster) handleIngest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Printf("[SERVER] Received aircraft: %s at %.2f,%.2f\n", a.ICAO, a.Latitude, a.Longitude)
+	// Normalize fields
+	if a.Seen.IsZero() {
+		a.Seen = time.Now()
+	}
+	a.Source = dbpkg.CanonicalSource(a.Source)
+
+	fmt.Printf("[SERVER] Received aircraft: %s source=%s at %.2f,%.2f\n", a.ICAO, a.Source, a.Latitude, a.Longitude)
+
+	// Persist (best-effort)
+	b.mu.Lock()
+	db := b.db
+	b.mu.Unlock()
+	if db != nil {
+		pctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = dbpkg.InsertAircraftReport(pctx, db, a)
+		_ = dbpkg.UpsertAircraft(pctx, db, a)
+		cancel()
+	}
+
 	b.Broadcast(a)
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// handleHistoryJSON returns historical ADS-B reports from Postgres as JSON.
+// Query params:
+//   - source: antenna|simulator|internet
+//   - from: RFC3339
+//   - to: RFC3339
+//   - fields: comma-separated; interpreted as filter criteria (field must be present).
+//     Examples: callsign,squawk,origin_country
+func (b *Broadcaster) handleHistoryJSON(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	b.mu.Lock()
+	db := b.db
+	b.mu.Unlock()
+	if db == nil {
+		http.Error(w, `{"error":"postgres not configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	fromStr := strings.TrimSpace(r.URL.Query().Get("from"))
+	toStr := strings.TrimSpace(r.URL.Query().Get("to"))
+	if fromStr == "" || toStr == "" {
+		http.Error(w, `{"error":"from and to are required (RFC3339)"}`, http.StatusBadRequest)
+		return
+	}
+	from, err := time.Parse(time.RFC3339, fromStr)
+	if err != nil {
+		http.Error(w, `{"error":"invalid from (RFC3339)"}`, http.StatusBadRequest)
+		return
+	}
+	to, err := time.Parse(time.RFC3339, toStr)
+	if err != nil {
+		http.Error(w, `{"error":"invalid to (RFC3339)"}`, http.StatusBadRequest)
+		return
+	}
+	if to.Before(from) {
+		http.Error(w, `{"error":"to must be after from"}`, http.StatusBadRequest)
+		return
+	}
+
+	source := strings.TrimSpace(r.URL.Query().Get("source"))
+	if source != "" {
+		source = dbpkg.CanonicalSource(source)
+	}
+
+	fieldsStr := strings.TrimSpace(r.URL.Query().Get("fields"))
+	var requireFields []string
+	if fieldsStr != "" {
+		for _, f := range strings.Split(fieldsStr, ",") {
+			k := strings.TrimSpace(f)
+			if k != "" {
+				requireFields = append(requireFields, k)
+			}
+		}
+	}
+
+	qctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	limit := 50000
+	if limStr := strings.TrimSpace(r.URL.Query().Get("limit")); limStr != "" {
+		if n, err := strconv.Atoi(limStr); err == nil {
+			limit = n
+		}
+	}
+	rows, err := dbpkg.QueryAircraftReports(qctx, db, dbpkg.HistoryQuery{Source: source, From: from, To: to, Limit: limit, RequireFields: requireFields})
+	cancel()
+	if err != nil {
+		log.Printf("history query: %v", err)
+		http.Error(w, `{"error":"query failed"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// Always return all DB fields for offline UI.
+	resp := make([]map[string]any, 0, len(rows))
+	for _, a := range rows {
+		m := map[string]any{
+			"icao":         a.ICAO,
+			"lat":          a.Latitude,
+			"lon":          a.Longitude,
+			"alt":          a.Altitude,
+			"speed":        a.Speed,
+			"heading":      a.Heading,
+			"callsign":     a.Callsign,
+			"squawk":       a.Squawk,
+			"rssi":         a.RSSI,
+			"verticalRate": a.VerticalRate,
+			"messages":     a.Messages,
+			"onGround":     a.OnGround,
+			"source":       a.Source,
+			"origin":       a.Origin,
+			"geoAltFt":     a.GeoAlt,
+			"baroAltFt":    a.BaroAlt,
+			"velocityMs":   a.Velocity,
+			"seen":         a.Seen.UTC().Format(time.RFC3339),
+		}
+		resp = append(resp, m)
+	}
+
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // handleDebug returns the current number of connected subscribers.
@@ -334,7 +590,7 @@ func (b *Broadcaster) handleAircraftRows(w http.ResponseWriter, r *http.Request)
 		case "sim", "simulator", "unknown", "":
 			rowAccent = "border-left:3px solid #c5483f;"
 			callsignBadge = `<span style="display:inline-block;min-width:34px;padding:1px 4px;margin-right:6px;border-radius:4px;background:rgba(197,72,63,0.25);border:1px solid rgba(197,72,63,0.65);color:#ffb3ad;font-size:10px;letter-spacing:0.5px;">SIM</span>`
-		case "internet", "net", "api", "online":
+		case "internet", "net", "api", "online", "dump1090", "readsb", "antenna", "rtlsdr", "rtl":
 			rowAccent = "border-left:3px solid #1e7ec8;"
 			callsignBadge = `<span style="display:inline-block;min-width:34px;padding:1px 4px;margin-right:6px;border-radius:4px;background:rgba(30,126,200,0.22);border:1px solid rgba(30,126,200,0.7);color:#b7d9ff;font-size:10px;letter-spacing:0.5px;">NET</span>`
 		default:

@@ -210,6 +210,15 @@
       color: inherit;
     }
 
+    /* Offline table text color (same theme) */
+    #adsb-offline-table {
+      color: #b7d9ff;
+    }
+
+    #adsb-offline-table td, #adsb-offline-table th {
+      color: inherit;
+    }
+
     /* Dockable overlay modules */
     #adsb-debug-overlay, #adsb-layer-overlay {
       position: fixed;
@@ -299,36 +308,100 @@
       </div>
     </div>
 
+    <!-- Tabs: Online / Offline -->
+    <div style="flex:0 0 auto;display:flex;gap:6px;margin-bottom:6px;">
+      <button id="adsb-tab-online" style="flex:1 1 0;padding:6px 8px;border-radius:6px;border:1px solid #1e7ec8;background:#1e7ec8;color:#fff;cursor:pointer;font-size:12px;">Online</button>
+      <button id="adsb-tab-offline" style="flex:1 1 0;padding:6px 8px;border-radius:6px;border:1px solid #1e7ec8;background:#0f1019;color:#b7d9ff;cursor:pointer;font-size:12px;">Offline</button>
+    </div>
+
     <!-- Search (filters table rows client-side) -->
     <div style="flex:0 0 auto;margin-bottom:6px;">
       <input id="adsb-table-search" type="search" placeholder="Search (ICAO, Callsign, Alt, Spd, Hdg, SQK, RSSI...)" autocomplete="off"
         style="width:100%;box-sizing:border-box;padding:6px 8px;border-radius:6px;border:1px solid #1e7ec8;background:#0f1019;color:#b7d9ff;outline:none;font-size:12px;" />
     </div>
 
-    <!-- Scroll area (only table + note scroll) -->
+    <!-- Scroll area (tab content) -->
     <div id="adsb-overlay-scroll" style="flex:1 1 auto;overflow-y:auto;">
-    <!-- Sortable aircraft table -->
-    <table id="adsb-debug-table" style="width:100%;border-collapse:collapse;font-size:12px;background:#1f2937;">
-      <thead>
-        <tr style="border-bottom:2px solid #1e7ec8;">
-          <th style="text-align:left;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="id" title="Click to sort by ICAO">ICAO</th>
-          <th style="text-align:left;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="callsign" title="Click to sort by Callsign">Callsign</th>
-          <th style="text-align:right;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="alt" title="Click to sort by Altitude">Alt (ft)</th>
-          <th style="text-align:right;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="spd" title="Click to sort by Speed">Spd (kt)</th>
-          <th style="text-align:right;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="hdg" title="Click to sort by Heading">Hdg</th>
-          <th style="text-align:right;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="squawk" title="Click to sort by Squawk">SQK</th>
-          <th style="text-align:right;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="rssi" title="Click to sort by Signal Strength">RSSI</th>
-        </tr>
-      </thead>
-      <!-- Table body populated via JavaScript polling -->
-      <tbody id="adsb-debug-body">
-      </tbody>
-    </table>
-    
-    <!-- Help text -->
-    <div id="adsb-debug-note" style="margin-top:6px;font-size:11px;opacity:0.9;color:#8fc6ff;">
-      Click column headers to sort • Click rows or markers to select aircraft
-    </div>
+      <!-- ONLINE -->
+      <div id="adsb-online-panel">
+        <!-- Sortable aircraft table -->
+        <table id="adsb-debug-table" style="width:100%;border-collapse:collapse;font-size:12px;background:#1f2937;">
+          <thead>
+            <tr style="border-bottom:2px solid #1e7ec8;">
+              <th style="text-align:left;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="id" title="Click to sort by ICAO">ICAO</th>
+              <th style="text-align:left;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="callsign" title="Click to sort by Callsign">Callsign</th>
+              <th style="text-align:right;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="alt" title="Click to sort by Altitude">Alt (ft)</th>
+              <th style="text-align:right;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="spd" title="Click to sort by Speed">Spd (kt)</th>
+              <th style="text-align:right;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="hdg" title="Click to sort by Heading">Hdg</th>
+              <th style="text-align:right;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="squawk" title="Click to sort by Squawk">SQK</th>
+              <th style="text-align:right;padding:4px 6px;cursor:pointer;user-select:none;" data-sort="rssi" title="Click to sort by Signal Strength">RSSI</th>
+            </tr>
+          </thead>
+          <!-- Table body populated via JavaScript polling -->
+          <tbody id="adsb-debug-body"></tbody>
+        </table>
+
+        <!-- Help text -->
+        <div style="margin-top:6px;font-size:11px;opacity:0.9;color:#8fc6ff;">
+          Click column headers to sort • Click rows or markers to select aircraft
+        </div>
+      </div>
+
+      <!-- OFFLINE -->
+      <div id="adsb-offline-panel" style="display:none;">
+        <div style="border:1px solid #1e7ec8;border-radius:6px;padding:8px;background:#0f1019;margin-bottom:8px;">
+          <div style="font-size:11px;opacity:0.9;color:#8fc6ff;margin-bottom:6px;">Offline Daten (PostgreSQL)</div>
+
+          <div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+              <label for="adsb-offline-source" style="cursor:pointer;">Quelle</label>
+              <select id="adsb-offline-source" style="width:160px;box-sizing:border-box;padding:6px 8px;border-radius:6px;border:1px solid #1e7ec8;background:#0f1019;color:#b7d9ff;outline:none;font-size:12px;">
+                <option value="simulator">Simulator</option>
+                <option value="internet">Internet</option>
+              </select>
+            </div>
+
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+              <label for="adsb-offline-from" style="cursor:pointer;">Von</label>
+              <input id="adsb-offline-from" type="datetime-local" style="width:200px;box-sizing:border-box;padding:6px 8px;border-radius:6px;border:1px solid #1e7ec8;background:#0f1019;color:#b7d9ff;outline:none;font-size:12px;" />
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+              <label for="adsb-offline-to" style="cursor:pointer;">Bis</label>
+              <input id="adsb-offline-to" type="datetime-local" style="width:200px;box-sizing:border-box;padding:6px 8px;border-radius:6px;border:1px solid #1e7ec8;background:#0f1019;color:#b7d9ff;outline:none;font-size:12px;" />
+            </div>
+
+            <div style="font-size:11px;opacity:0.9;color:#8fc6ff;">Filter (Feld muss vorhanden sein)</div>
+            <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:12px;">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input id="adsb-offline-require-callsign" type="checkbox" />Callsign</label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input id="adsb-offline-require-squawk" type="checkbox" />SQK</label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input id="adsb-offline-require-origin" type="checkbox" />Origin</label>
+            </div>
+
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+              <button id="adsb-offline-run" style="padding:6px 10px;border-radius:6px;border:none;cursor:pointer;background:#1e7ec8;color:#fff;font-size:12px;">Abfragen</button>
+              <div id="adsb-offline-status" style="font-size:11px;opacity:0.9;color:#8fc6ff;min-height:14px;text-align:right;"></div>
+            </div>
+          </div>
+        </div>
+
+        <table id="adsb-offline-table" style="width:100%;border-collapse:collapse;font-size:12px;background:#1f2937;">
+          <thead>
+            <tr style="border-bottom:2px solid #1e7ec8;">
+              <th style="text-align:left;padding:4px 6px;user-select:none;">ICAO</th>
+              <th style="text-align:left;padding:4px 6px;user-select:none;">Callsign</th>
+              <th style="text-align:right;padding:4px 6px;user-select:none;">Alt (ft)</th>
+              <th style="text-align:right;padding:4px 6px;user-select:none;">Spd (kt)</th>
+              <th style="text-align:right;padding:4px 6px;user-select:none;">Hdg</th>
+              <th style="text-align:right;padding:4px 6px;user-select:none;">SQK</th>
+              <th style="text-align:right;padding:4px 6px;user-select:none;">RSSI</th>
+              <th style="text-align:left;padding:4px 6px;user-select:none;">Erfassungszeitpunkt</th>
+            </tr>
+          </thead>
+          <tbody id="adsb-offline-body"></tbody>
+        </table>
+
+        <div style="margin-top:6px;font-size:11px;opacity:0.9;color:#8fc6ff;">Offline Daten werden aus der Datenbank geladen und auf der Karte dargestellt.</div>
+      </div>
     </div>
 
     <!-- Resize handle -->
@@ -346,9 +419,22 @@
       <!-- Tree: Data Sources -->
       <div style="border:1px solid #1e7ec8;border-radius:6px;padding:8px;background:#0f1019;margin-bottom:8px;">
         <div style="font-size:11px;opacity:0.9;color:#8fc6ff;margin-bottom:6px;">Data Sources</div>
-        <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;">
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input id="adsb-layer-sim" type="checkbox" checked />Simulator</label>
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input id="adsb-layer-internet" type="checkbox" checked />Internet</label>
+        <div style="display:flex;flex-direction:column;gap:10px;font-size:12px;">
+          <div style="border:1px solid rgba(30,126,200,0.5);border-radius:6px;padding:8px;">
+            <div style="font-size:11px;opacity:0.9;color:#8fc6ff;margin-bottom:6px;">Online</div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input id="adsb-layer-online-sim" type="checkbox" checked />Simulator</label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input id="adsb-layer-online-internet" type="checkbox" checked />Internet</label>
+            </div>
+          </div>
+
+          <div style="border:1px solid rgba(30,126,200,0.5);border-radius:6px;padding:8px;">
+            <div style="font-size:11px;opacity:0.9;color:#8fc6ff;margin-bottom:6px;">Offline</div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input id="adsb-layer-offline-sim" type="checkbox" checked />Simulator</label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input id="adsb-layer-offline-internet" type="checkbox" checked />Internet</label>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -372,6 +458,7 @@
         </div>
         <div style="margin-top:6px;font-size:11px;opacity:0.85;color:#8fc6ff;">Begrenzt die Anzahl gespeicherter Trackpunkte pro Flugzeug.</div>
       </div>
+
     </div>
 
     <div id="adsb-layer-resize" title="Resize panel"></div>

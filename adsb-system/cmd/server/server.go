@@ -54,6 +54,9 @@ func main() {
 			fmt.Printf("[SERVER] postgres connect: %v\n", err)
 		} else if err := dbpkg.EnsureSchema(dbConn); err != nil {
 			fmt.Printf("[SERVER] ensure schema: %v\n", err)
+		} else {
+			// Enable persistence for /ingest path too.
+			broadcaster.SetDB(dbConn)
 		}
 	}
 
@@ -119,11 +122,18 @@ func startDataForwarding(ctx context.Context, cfg Config, broadcaster *grpcserve
 					time.Sleep(100 * time.Millisecond)
 					continue
 				}
+				if a.Seen.IsZero() {
+					a.Seen = time.Now()
+				}
+				a.Source = dbpkg.CanonicalSource(a.Source)
 				fmt.Printf("[SERVER] Broadcast: %s\n", a.ICAO)
 				broadcaster.Broadcast(a)
 
 				// Persist to database if available
 				if dbConn != nil {
+					if err := dbpkg.InsertAircraftReport(ctx, dbConn, a); err != nil {
+						fmt.Printf("[SERVER] db insert report: %v\n", err)
+					}
 					if err := dbpkg.UpsertAircraft(ctx, dbConn, a); err != nil {
 						fmt.Printf("[SERVER] db upsert: %v\n", err)
 					}

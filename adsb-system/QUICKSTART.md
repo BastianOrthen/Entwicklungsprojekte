@@ -72,10 +72,53 @@ Start-Sleep -Seconds 2; Start-Process "http://localhost:3000"
 GET  /api/aircraft           → JSON list of all aircraft
 GET  /api/aircraft-rows      → HTML table rows (sortable)
 GET  /api/aircraft-rows?sort=alt&asc=true   → Sorted rows
+GET  /api/history            → JSON historical reports (Postgres)
 POST /ingest                 → Accept aircraft JSON
 GET  /stream                 → Server-Sent Events stream
 GET  /healthz                → Health check (ok/error)
 ```
+
+### History Query (PostgreSQL)
+
+Wenn `POSTGRES_DSN` gesetzt ist (Docker-Compose macht das automatisch), speichert der Server:
+- aktuellen Zustand pro Flugzeug in `aircraft`
+- jede einzelne Meldung historisch in `aircraft_reports`
+
+Die Web-UI hat im rechten Overlay einen Tab **Offline**:
+- Quelle: Simulator | Internet
+- Zeitraum: Von/Bis
+- Filter: Feld muss vorhanden sein (z.B. Callsign/SQK/Origin)
+- Button **Abfragen**: lädt die Ergebnisse aus Postgres, zeichnet sie auf die Karte und zeigt sie in der Offline-Tabelle.
+
+API-Parameter für `/api/history`:
+- `source`: `antenna` | `simulator` | `internet`
+- `from`, `to`: RFC3339 (z.B. `2026-01-02T12:00:00Z`)
+- `fields`: Komma-separiert, optional; wird als Filter interpretiert (Feld muss vorhanden sein), z.B. `callsign,squawk,origin_country`
+
+## SDR / Antenne (readsb) via Docker
+
+Das System kann ADS-B Daten direkt von einem SDR empfangen, indem `readsb` im Container läuft und der Server `aircraft.json` pollt.
+
+- Start mit SDR-Compose-Override:
+    - `docker compose -f docker-compose.yml -f docker-compose.sdr.yml up --build -d`
+
+## Docker: Testen (inkl. Datenbank)
+
+Start (Server + Postgres + Simulator + Web + optional Internet):
+
+```powershell
+cd c:\Users\basti\Documents\Entwicklungsprojekte\adsb-system
+docker compose up --build -d
+```
+
+Dann öffnen:
+- UI: `http://localhost:3000`
+
+Verifizieren:
+- Logs: `docker compose logs -f adsb-server`
+- In der UI Tab **Offline** öffnen, Zeitraum setzen (z.B. letzte 10 Minuten) und **Abfragen**.
+
+Hinweis (Windows): USB-Passthrough in Linux-Containern funktioniert typischerweise nur über WSL2 + `usbipd` (SDR an WSL/`docker-desktop` attachen). Auf nativen Linux-Systemen klappt es meist direkt.
 
 ## Sorting Columns
 

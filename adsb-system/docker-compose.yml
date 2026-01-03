@@ -4,11 +4,15 @@ services:
       context: .
       args:
         TARGET: server
+    environment:
+      - POSTGRES_DSN=postgres://adsb:adsb@postgres:5432/adsb?sslmode=disable
     ports:
       - "50051:50051"
       - "8080:8080"
     networks:
       - adsbnet
+    depends_on:
+      - postgres
     restart: unless-stopped
 
   simulator:
